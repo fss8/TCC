@@ -6,6 +6,7 @@ from AgenteRL import AgenteRL
 from plot_helper import plot, initialize_graph
 
 import pygame
+import time as tm
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
@@ -45,11 +46,22 @@ class QTrainer:
         self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss()
 
-    def train_step(self, state, action, reward, next_state, done):
-        state = state
-        next_state = next_state
-        action = torch.tensor(action, dtype=torch.long)
-        reward = torch.tensor(reward, dtype=torch.float)
+    def train_step(self, state, action, reward, next_state, done, memory=False):
+        
+        if memory: 
+            # print(state)
+            # print(next_state)
+            state = torch.stack(state, dim=0).float()
+            # print(state)
+            next_state = torch.stack(next_state, dim=0).float()
+            # print(next_state)
+            action = torch.tensor(action, dtype=torch.long)
+            reward = torch.tensor(reward, dtype=torch.float)
+        else:
+            state = torch.tensor(state, dtype=torch.float)
+            next_state = torch.tensor(next_state, dtype=torch.float)
+            action = torch.tensor(action, dtype=torch.long)
+            reward = torch.tensor(reward, dtype=torch.float)
         # done = (done,)
         
         # print(range(len(done)))
@@ -58,7 +70,7 @@ class QTrainer:
         # print(action.shape)
         # print(state.shape)
 
-        if len(action.shape) == 1:
+        if len(state.shape) == 1:
             # (1, x)
             state = torch.unsqueeze(state, 0)
             next_state = torch.unsqueeze(next_state, 0)
@@ -105,6 +117,8 @@ class Agent:
         estados = ambiente._get_state()
         # print(estados, len(estados))
         # return estados
+        # estados2 = torch.tensor(estados, dtype=torch.float)
+        # print(estados2.shape)
         return torch.tensor(estados, dtype=torch.float)
 
     def remember(self, state, action, reward, next_state, done):
@@ -116,10 +130,10 @@ class Agent:
         else:
             mini_sample = self.memory
 
-        # states, actions, rewards, next_states, dones = zip(*mini_sample)
-        # self.trainer.train_step(states, actions, rewards, next_states, dones)
-        for state, action, reward, next_state, done in mini_sample:
-           self.trainer.train_step(state, action, reward, next_state, done)
+        states, actions, rewards, next_states, dones = zip(*mini_sample)
+        self.trainer.train_step(states, actions, rewards, next_states, dones, memory=True)
+        # for state, action, reward, next_state, done in mini_sample:
+        #    self.trainer.train_step(state, action, reward, next_state, done)
 
     def train_short_memory(self, state, action, reward, next_state, done):
         self.trainer.train_step(state, action, reward, next_state, done)
@@ -137,7 +151,9 @@ class Agent:
             # state0 = torch.tensor(state, dtype=torch.float)
             # print("state0:", state0)
             prediction = self.model(state)
+            # print(prediction)
             move = torch.argmax(prediction).item()
+            # print(move)
             final_move[move] = 1
 
         return final_move
@@ -152,13 +168,18 @@ def train(plotar = False):
     game = AgenteRL()
     
     episode = 0
-    time = 0
+    tempo = 0
     score = 0
+    total_reward = 0
+    
+    #users data
+    total_time = 0
     
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
         # get old state
-        if plotar: game.render(screen, episode, score, time)
+        # tm.sleep(0.1)
+        if plotar: game.render(screen, episode, total_reward, tempo)
         state_old = agent.get_state(game)
 
         # get move
@@ -166,38 +187,43 @@ def train(plotar = False):
         movement = np.argmax(final_move)
 
         # perform move and get new state
-        state_new, reward, done, score, info = game.step(movement)
+        _, reward, done, score, info = game.step(movement)
+        total_time += info['tempos']
         score = reward
-        # state_new = agent.get_state(game)
+        state_new = agent.get_state(game)
 
         # train short memory
         agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
         # remember
         agent.remember(state_old, final_move, reward, state_new, done)
-        time += 1
+        tempo += 1
+        total_reward += reward
 
-        if done:
+        if done or tempo > 2000:
             # train long memory, plot result
             game.reset()
             episode += 1
-            time = 0
+            tempo = 0
             agent.n_games += 1
             agent.train_long_memory()
 
-            if score > record:
-                record = score
+            if info['tempos'] > record:
+                record = info['tempos']
             #     agent.model.save()
 
-            print('Game', agent.n_games, 'Score', score, 'Record:', record)
+            print(info)
+            print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
+            total_reward = 0
 
+            # score = total_time
             # plot_scores.append(score)
             # total_score += score
             # mean_score = total_score / agent.n_games
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode == 30): 
+            if(episode == 50): 
                 print("SAVING MODEL")
                 agent.model.save()
                 break
@@ -216,14 +242,16 @@ def test():
     game = AgenteRL()
     
     episode = 0
-    time = 0
+    tempo = 0
     score = 0
+    total_reward = 0
     
     screen = initialize_graph(game.grid_size)
 
     while True:
+        tm.sleep(0.1)
         # get old state
-        game.render(screen, episode, score, time)
+        game.render(screen, episode, score, tempo)
         state_old = agent.get_state(game)
 
         # get move
@@ -234,7 +262,8 @@ def test():
         _, reward, done, score, info = game.step(movement)
         score = reward
         # state_new = agent.get_state(game)
-        time += 1
+        tempo += 1
+        total_reward += reward
 
         # train short memory
         # agent.train_short_memory(state_old, final_move, reward, state_new, done)
@@ -244,11 +273,11 @@ def test():
             episode += 1
             game.reset()
             agent.n_games += 1
-            print('Game', agent.n_games, 'Score', score, 'Record:', record) 
-            
+            print('Game', agent.n_games, 'Score', score, 'TOTAL RW(test):', total_reward, 'Record:', record) 
+            total_reward = 0
             if episode == 100: break
     pygame.quit()
 
 if __name__ == '__main__':
-    # train(plotar=False)
+    train(plotar=True)
     test()
