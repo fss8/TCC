@@ -106,7 +106,8 @@ class Agent:
 
     def __init__(self):
         self.n_games = 0
-        self.epsilon = 0 # randomness
+        self.epsilon = 1 # randomness
+        self.epsilon_decay = 0.95
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
         self.model = Linear_QNet(10003, 256, 21)
@@ -142,9 +143,9 @@ class Agent:
         # random moves: tradeoff exploration / exploitation
         
         #MOVIMENTOS: ESQUEDA, DIREITA E FICAR PARADO
-        self.epsilon = 80 - self.n_games
+        # self.epsilon = 80 - self.n_games
         final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
-        if random.randint(0, 200) < self.epsilon:
+        if np.random.rand() < self.epsilon:
             move = random.randint(0, 20)
             final_move[move] = 1
         else:
@@ -155,7 +156,8 @@ class Agent:
             move = torch.argmax(prediction).item()
             # print(move)
             final_move[move] = 1
-
+        if self.epsilon > 0.1: self.epsilon = self.epsilon*self.epsilon_decay
+        
         return final_move
 
 
@@ -173,12 +175,12 @@ def train(plotar = False):
     total_reward = 0
     
     #users data
-    total_time = 0
+    # total_time = 0
     
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
         # get old state
-        # tm.sleep(0.1)
+        # tm.sleep(0.3)
         if plotar: game.render(screen, episode, total_reward, tempo)
         state_old = agent.get_state(game)
 
@@ -188,7 +190,7 @@ def train(plotar = False):
 
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
-        total_time += info['tempos']
+        # total_time = info['tempos']
         score = reward
         state_new = agent.get_state(game)
 
@@ -200,7 +202,9 @@ def train(plotar = False):
         tempo += 1
         total_reward += reward
 
-        if done or tempo > 2000:
+        if done or tempo > 1500:
+
+            print("Done:" , done)
             # train long memory, plot result
             game.reset()
             episode += 1
@@ -208,11 +212,14 @@ def train(plotar = False):
             agent.n_games += 1
             agent.train_long_memory()
 
-            if info['tempos'] > record:
-                record = info['tempos']
+            if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
+            else: media_tempo = 0
+
+            if media_tempo > record:
+                record = media_tempo
             #     agent.model.save()
 
-            print(info)
+            print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
 
@@ -223,7 +230,7 @@ def train(plotar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode == 50): 
+            if(episode == 20): 
                 print("SAVING MODEL")
                 agent.model.save()
                 break

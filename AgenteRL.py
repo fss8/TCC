@@ -47,7 +47,7 @@ class AgenteRL(gym.Env):
             
         conditions = self.consecutive_negative_rewards >= self.max_consecutive_negative or self.consecutive_positive_rewards >= self.max_consecutive_positive_rewards
         done = self.is_done(reward) or conditions
-        info = {"tempos": total_time, reqs: reqs, "u_waiting": u_waiting}
+        info = {"tempos": self.total_time_waiting, "qtdw": self.num_waiting , "accepts": self.sum_accepts, "rejects": self.sum_rejects}
 
         self.state = self._get_state()
         return self.state, reward, done, {}, info
@@ -69,7 +69,7 @@ class AgenteRL(gym.Env):
         index = 0
         while index < self.user_states.shape[0]:
             if self.user_states[index] == 1:
-                if np.random.rand() < self.user_disappearance_prob:
+                if np.random.rand() < self.user_disappearance_prob/10:
                     user_index = index
                     
                     self.clientes_grid[self.users_positions[user_index][0]][self.users_positions[user_index][1]] = 0
@@ -91,16 +91,17 @@ class AgenteRL(gym.Env):
                     self.users_time[index] += 1
                     
             elif user == 3: # Usuário se moveu
-                if np.random.rand() < 0.5: # 50% de chance de mover
-                    # Sorteia um lugar aleatório no grid
-                    while True:
-                        pos = np.random.randint(0, self.grid_size, size=2)
-                        if self.clientes_grid[pos[0]][pos[1]] == 0:
-                            break
-                    new_user_position = pos
-                    self.users_positions[index] = new_user_position
-                    self.clientes_grid[new_user_position[0]][new_user_position[1]] = 1
-                    self.user_states[index] = 0
+                pass
+                # if np.random.rand() < 0.5: # 50% de chance de mover
+                #     # Sorteia um lugar aleatório no grid
+                #     while True:
+                #         pos = np.random.randint(0, self.grid_size, size=2)
+                #         if self.clientes_grid[pos[0]][pos[1]] == 0:
+                #             break
+                #     new_user_position = pos
+                #     self.users_positions[index] = new_user_position
+                #     self.clientes_grid[new_user_position[0]][new_user_position[1]] = 1
+                #     self.user_states[index] = 0
         
         
     
@@ -131,22 +132,27 @@ class AgenteRL(gym.Env):
         # media = np.mean(self.users_time)
         for i in range(len(self.users_positions)):
         
-            if self.user_states[i] == 2:
+            if self.user_states[i] == 3:
+                tempo_esperando = self.users_time[i]
                 if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
-                    tempo_esperando = self.users_time[i]
                     reward += 1000/(10+tempo_esperando)  # Adiciona 1 para evitar divisão por zero
-                    self.user_states[i] = 1
-                    sum_time += self.users_time[i]
-                    self.users_time[i] = 0
-                    qty += 1
+                    self.sum_accepts += 1
+                    # sum_time += self.users_time[i]
+                    # users_waiting += 1
                 else: # Penalidade por ter usuário sem cobertura
-                    # self.user_states[i] = 0
-                    # self.clientes_grid[self.users_positions[i][0]][self.users_positions[i][1]] = 0
-                    # if(self.user_states[i] == 2):
-                        # self.user_states[i] = 3
-                    # reward -= 1
-                    self.users_time[i] += 1
+                    reward -= 2*tempo_esperando
+                    self.sum_rejects += 0
+                self.user_states[i] = 1
+                self.users_time[i] = 0
+            elif self.user_states[i] == 2:
+                if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
+                    self.user_states[i] = 3
+                    sum_time += self.users_time[i]
+                    # self.users_time[i] +=1
                     users_waiting += 1
+                    qty += 1
+                else:
+                    self.users_time[i] += 1
         if reward > 0:
             if energy_penalty == 0:
                 pass
@@ -155,13 +161,15 @@ class AgenteRL(gym.Env):
         else:
             reward = (reward*(energy_penalty))/len(self.user_states)
         reward = reward - (users_waiting)
+        self.total_time_waiting += sum_time
+        self.num_waiting += users_waiting
         return reward, sum_time, qty, users_waiting
     
     # def get_observation(self):
     #     return self.observation, {}
     
     def is_done(self, reward):
-        return self.battery <= 0 or np.all(self.user_states == 2)
+        return self.battery <= 0 #or np.all(self.user_states == 2)
     
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -172,6 +180,11 @@ class AgenteRL(gym.Env):
         self.consecutive_negative_rewards = 0
         self.max_consecutive_positive_rewards = 50
         self.max_consecutive_negative = 250
+
+        self.sum_accepts = 0
+        self.sum_rejects = 0
+        self.total_time_waiting = 0
+        self.num_waiting = 0
         
         # self.posicao = np.random.integers(0, self.grid_size, size=2, dtype=int)
         self.posicao = np.random.randint(0, self.grid_size, size=2)
@@ -198,12 +211,16 @@ class AgenteRL(gym.Env):
         
         screen.fill((255, 255, 255))  # Limpa a tela com branco
         block_size = 8  # Tamanho de cada bloco no grid
-
+        color = (0,0, 255)
+        for i in range(0, 100):
+            for y in range(0,100):
+                if np.linalg.norm(self.posicao - (i, y)) == self.coverage_radius:
+                    pygame.draw.rect(screen, color, (y * block_size, i * block_size, block_size, block_size))
         # Desenha os usuários
         for pos, state in zip(self.users_positions, self.user_states):
             if state == 1:
                 color = (0, 10, 0)  # Preto se disponível
-            elif state == 2:
+            elif state == 3:
                 # Define a cor com base na cobertura do drone
                 if np.linalg.norm(self.posicao - pos) <= self.coverage_radius:
                     color = (0, 0, 255)  # Azul se dentro da área de cobertura
