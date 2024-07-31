@@ -100,7 +100,7 @@ class QTrainer:
 
 MAX_MEMORY = 100_000
 BATCH_SIZE = 10000
-LR = 0.001
+LR = 0.002
 
 class Agent:
 
@@ -230,7 +230,7 @@ def train(plotar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode == 20): 
+            if(episode == 5): 
                 print("SAVING MODEL")
                 agent.model.save()
                 break
@@ -257,6 +257,7 @@ def test():
 
     while True:
         tm.sleep(0.1)
+        tempo += 1
         # get old state
         game.render(screen, episode, score, tempo)
         state_old = agent.get_state(game)
@@ -269,7 +270,8 @@ def test():
         _, reward, done, score, info = game.step(movement)
         score = reward
         # state_new = agent.get_state(game)
-        tempo += 1
+        # tempo += 1
+        # print(reward)
         total_reward += reward
 
         # train short memory
@@ -278,6 +280,7 @@ def test():
         if done:
             # train long memory, plot result
             episode += 1
+            tempo = 0
             game.reset()
             agent.n_games += 1
             print('Game', agent.n_games, 'Score', score, 'TOTAL RW(test):', total_reward, 'Record:', record) 
@@ -286,5 +289,5 @@ def test():
     pygame.quit()
 
 if __name__ == '__main__':
-    train(plotar=True)
+    train(plotar=False)
     test()
