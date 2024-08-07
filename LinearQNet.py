@@ -18,14 +18,31 @@ import torch.nn.functional as F
 import os
 
 class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, output_size):
         super().__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, output_size)
+        self.linear2 = nn.Linear(hidden_size, hidden2_size)
+        self.linear3 = nn.Linear(hidden2_size, hidden3_size)
+        self.linear4 = nn.Linear(hidden3_size, output_size)
+        
+        # self.layers = nn.Sequential(
+        #     # nn.Flatten(),
+        #     nn.Linear(input_size, hidden_size),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_size, 32),
+        #     nn.ReLU(),
+        #     nn.Linear(32, output_size)
+        # )
+        
 
     def forward(self, x):
+        # x = F.relu(self.linear1(x))
+        # x = self.linear2(x)
+        # return self.layers(x)
         x = F.relu(self.linear1(x))
-        x = self.linear2(x)
+        x = F.relu(self.linear2(x))
+        x = F.relu(self.linear3(x))
+        x = self.linear4(x)
         return x
 
     def save(self, file_name='model.pth'):
@@ -107,10 +124,10 @@ class Agent:
     def __init__(self):
         self.n_games = 0
         self.epsilon = 1 # randomness
-        self.epsilon_decay = 0.95
+        self.epsilon_decay = 0.997
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(10003, 256, 21)
+        self.model = Linear_QNet(10003, 512, 256, 128, 21)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -139,7 +156,7 @@ class Agent:
     def train_short_memory(self, state, action, reward, next_state, done):
         self.trainer.train_step(state, action, reward, next_state, done)
 
-    def get_action(self, state):
+    def get_action(self, state, test=False):
         # random moves: tradeoff exploration / exploitation
         
         #MOVIMENTOS: ESQUEDA, DIREITA E FICAR PARADO
@@ -156,7 +173,7 @@ class Agent:
             move = torch.argmax(prediction).item()
             # print(move)
             final_move[move] = 1
-        if self.epsilon > 0.1: self.epsilon = self.epsilon*self.epsilon_decay
+        if self.epsilon > 0.1 and test==False: self.epsilon = self.epsilon*self.epsilon_decay
         
         return final_move
 
@@ -181,11 +198,12 @@ def train(plotar = False):
     while True:
         # get old state
         # tm.sleep(0.3)
-        if plotar: game.render(screen, episode, total_reward, tempo)
+        epsilon = agent.epsilon
+        if plotar: game.render(screen, episode, total_reward, tempo, epsilon)
         state_old = agent.get_state(game)
 
         # get move
-        final_move = agent.get_action(state_old)
+        final_move = agent.get_action(state_old, test=False)
         movement = np.argmax(final_move)
 
         # perform move and get new state
@@ -222,6 +240,7 @@ def train(plotar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
+            agent.epsilon = 1
 
             # score = total_time
             # plot_scores.append(score)
@@ -241,11 +260,14 @@ def test():
     plot_scores = []
     plot_mean_scores = []
     total_score = 0
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(current_dir, 'model', 'model.pth')
     record = 0
     # agent = load
     agent = Agent()
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    agent.model.load_state_dict(torch.load('/model/model.pth', map_location=device))
+    agent.model.load_state_dict(torch.load(model_path, map_location=device))
     game = AgenteRL()
     
     episode = 0
@@ -253,17 +275,20 @@ def test():
     score = 0
     total_reward = 0
     
+    agent.epsilon = 0.1
+    epsilon = agent.epsilon
+    
     screen = initialize_graph(game.grid_size)
 
     while True:
         tm.sleep(0.1)
         tempo += 1
         # get old state
-        game.render(screen, episode, score, tempo)
+        game.render(screen, episode, score, tempo, epsilon=epsilon)
         state_old = agent.get_state(game)
 
         # get move
-        final_move = agent.get_action(state_old)
+        final_move = agent.get_action(state_old, test=True)
         movement = np.argmax(final_move)
 
         # perform move and get new state

@@ -13,15 +13,20 @@ from math import log2
 
 # [[=== BLOCO 1 ===]]
 # [[=== _______ ===]]
-def energia_voo(DroneF, DroneI):
+def energia_voo(DroneF, DroneI, velocity):
     Xf, Yf = DroneF # Posição final do drone
     Xi, Yi = DroneI # Posição inicial do drone
-    
+    # print(velocity)
     # print(DroneF, DroneI)
-    Pf = 1 #Potencia de voo
-    Vf = 1 #Velocidade de voo
-    distancia_voo_quad = math.sqrt((Xf - Xi)**2 + (Yf - Yi)**2)
-    Efly = (Pf*distancia_voo_quad)/Vf
+    # print(DroneF, DroneI)
+    if(velocity > 0):
+        Pf = 200 #Potencia de voo (em watts?)
+        Vf = 250 #Velocidade de voo
+        # print(DroneF, DroneI)
+        distancia_voo_quad = math.sqrt((Xf - Xi)**2 + (Yf - Yi)**2)
+        # print(distancia_voo_quad)
+        Efly = (Pf*distancia_voo_quad)/Vf
+    else: Efly = 0
     # print(Efly)
     return Efly
 
@@ -31,30 +36,31 @@ def energia_sobrevoo(DroneI, DispositivoP):
     Ux, Uy = DispositivoP # Posição do usuário
     
     
-    Ph = 1 # Potencia de sobrevoo
-    Dm = 1 # Numero de bits para computação da tarefa
-    Cm = 1 # Número de ciclos de CPU, para computação da tarefa de 1-bit
+    Ph = 200 # Potencia de sobrevoo
+    Dm = 8_000_000 # Numero de bits para computação da tarefa
+    Cm = 1000 # Número de ciclos de CPU, para computação da tarefa de 1-bit
 
     # ------ calculo  - para uma tarefa?
-    Fm_DT = 1 # Frequência estimada do ciclo de CPU do UAV armazenado no Digital Twin (DT)
-    Fm_real_ = 1 # Clico de cpu real
+    Fm_DT = 2_000_000_000 # Frequência estimada do ciclo de CPU do UAV armazenado no Digital Twin (DT)
+    Fm_real_ = 2_000_000_000 # Clico de cpu real
     Fm_desvio = Fm_DT - Fm_real_  # desvio da frequência de CPU entre o seu valor real e o armazenado em DT (avaliar se pode ser 0)
 
-    B = 1 # Banda do sistema
-    o2 = 1 # Ruido aditivo Gaussiano branco de potência
-    p = 1 # Potencia de transmissão do usuário
+    B = 10_000_000 # Banda do sistema
+    o2 = 1*(10**-9) # Ruido aditivo Gaussiano branco de potência
+    p = 0.1 # Potencia de transmissão do usuário
 
     B0 = 1 # ganho de potencia em referencia a distancia de um(1) metro
     distancia_user_modulo_elev_quad = (Ux - Xi)**2 + (Uy - Yi)**2 # distancia até o usuário ||distancia||  elevado ao quadrado
     h = B0/(distancia_user_modulo_elev_quad) # ganho de potencia do canal na LoS(linha de visão)
     RmjUAV = B*log2(1+((p*h)/o2)) # taxa de transmissão do user para o drone (ou do drone para o user?)
+    # print(RmjUAV)
     TmjUAV_trans = Dm/RmjUAV
 
-    estimado_Tm = (Dm*Cm)/Fm_DT
-    computing_time_gap = (Dm*Cm*Fm_desvio)/(Fm_DT*(Fm_DT-Fm_desvio))
-    TmjUAV = estimado_Tm + computing_time_gap
+    # estimado_Tm = (Dm*Cm)/Fm_DT
+    # computing_time_gap = (Dm*Cm*Fm_desvio)/(Fm_DT*(Fm_DT-Fm_desvio))
+    TmjUAV = 0 # estimado_Tm + computing_time_gap
     Ehov = Ph*(TmjUAV_trans + TmjUAV)
-    return Ehov, TmjUAV_trans, TmjUAV
+    return Ehov, Ph*TmjUAV_trans, Ph*TmjUAV
 
 
 # [[=== BLOCO 1 ===]]
@@ -163,10 +169,10 @@ class AgenteRL(gym.Env):
         #Mudanças de estado
         for index, user in enumerate(self.user_states):
             if user == 1:
-                if np.random.rand() < 0.01:
+                if np.random.rand() < 0.003:
                     self.clientes_grid[self.users_positions[index][0]][self.users_positions[index][1]] = 2
                     self.user_states[index] = 2
-                    self.users_time[index] += 1
+                    self.users_time[index] = 1
                     
             elif user == 3: # Usuário se moveu
                 pass
@@ -199,10 +205,11 @@ class AgenteRL(gym.Env):
             self.posicao[1] = max(0, self.posicao[1] - speed)  # oeste
         # elif action == 4:
             # pass  # Ficar parado
-        energy_COST = energia_voo(self.posicao, last_position)
+        energy_COST = energia_voo(self.posicao, last_position, speed)
+        # print(speed, energy_COST)
         # self.battery -= speed/10
         energy_penalty = energy_COST
-        self.battery -= energy_COST
+        self.battery -= energy_COST/10
         return self.posicao, energy_penalty
     
     def get_reward(self, energy_penalty):
@@ -211,13 +218,15 @@ class AgenteRL(gym.Env):
         sum_time = 0
         qty = 0
         # media = np.mean(self.users_time)
+        aguardando = 0
+        n_pegou = 0
         energy_sobrevoo = 0
         for i in range(len(self.users_positions)):
         
             if self.user_states[i] == 3:
                 tempo_esperando = self.users_time[i]
                 if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
-                    reward += 500/(10+tempo_esperando)  # Adiciona 1 para evitar divisão por zero
+                    reward += 2000/(5+(tempo_esperando/20))  # Adiciona 1 para evitar divisão por zero
                     self.sum_accepts += 1
                     # sum_time += self.users_time[i]
                     # users_waiting += 1
@@ -227,25 +236,33 @@ class AgenteRL(gym.Env):
                 self.user_states[i] = 1
                 self.users_time[i] = 0
             elif self.user_states[i] == 2:
+                aguardando += 1
                 if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
                     self.user_states[i] = 3
                     sum_time += self.users_time[i]
                     # self.users_time[i] +=1
                     users_waiting += 1
                     qty += 1
-                    reward = 10
+                    reward += 75
                     
                     cost_voo, _, _= energia_sobrevoo(self.posicao, self.users_positions[i])
-                    energy_sobrevoo -= cost_voo
+                    # print(cost_voo, cost_tt, cost_33)
+                    energy_sobrevoo += cost_voo
+                    self.battery -= cost_voo/10
+                    
                     
                 else:
+                    n_pegou += 1
                     self.users_time[i] += 1
-                    reward -= self.users_time[i]/10
+                    reward -= self.users_time[i]/20
+                    
+        if energy_penalty == 0 and aguardando == n_pegou:
+            reward -= 3
         energy_penalty = energy_penalty + energy_sobrevoo
-        if reward > 0:
-            reward = reward - (energy_penalty/12)
-        else:
-            reward = (reward*(energy_penalty/10))/(len(self.user_states)+1)
+        # if reward > 0:
+        reward = reward - (energy_penalty/120)
+        # else:
+        #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
         # reward = reward - (users_waiting)
         self.total_time_waiting += sum_time
@@ -294,7 +311,7 @@ class AgenteRL(gym.Env):
         self.state = self._get_state()
         return self.state, ''
     
-    def render(self, screen, episode, total_reward, step):
+    def render(self, screen, episode, total_reward, step, epsilon):
         
         screen.fill((255, 255, 255))  # Limpa a tela com branco
         block_size = 8  # Tamanho de cada bloco no grid
@@ -322,7 +339,7 @@ class AgenteRL(gym.Env):
 
         # Adiciona texto de status
         font = pygame.font.SysFont(None, 24)
-        text = font.render(f'Episode: {episode} | Step: {step} | Total Reward: {total_reward} | battery: {self.battery}', True, (0, 0, 0))
+        text = font.render(f'Episode: {episode} | Step: {step} | Total Reward: {total_reward:9.4f} | battery: {self.battery:9.4f} || e: {epsilon:9.4f}', True, (0, 0, 0))
         screen.blit(text, (10, self.grid_size * block_size + 10))
 
         pygame.display.flip()  # Atualiza a tela
