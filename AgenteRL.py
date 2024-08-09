@@ -51,6 +51,7 @@ def energia_sobrevoo(DroneI, DispositivoP):
 
     B0 = 1 # ganho de potencia em referencia a distancia de um(1) metro
     distancia_user_modulo_elev_quad = (Ux - Xi)**2 + (Uy - Yi)**2 # distancia até o usuário ||distancia||  elevado ao quadrado
+    if distancia_user_modulo_elev_quad == 0: distancia_user_modulo_elev_quad = 1
     h = B0/(distancia_user_modulo_elev_quad) # ganho de potencia do canal na LoS(linha de visão)
     RmjUAV = B*log2(1+((p*h)/o2)) # taxa de transmissão do user para o drone (ou do drone para o user?)
     # print(RmjUAV)
@@ -89,8 +90,11 @@ def consumo_joint(DroneF, DroneI, ListaDispositivos):
     Euav = alfa*Eexe + beta*Efly_2
     return Euav
 
+
+GRID_SIZE = 70
+TOTAL_STATES = 4
 class AgenteRL(gym.Env):
-    def __init__(self, max_clients = 25, grid_size = 100, coverage_radius=20):
+    def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=10):
         super(AgenteRL, self).__init__()
         
         self.coverage_radius = coverage_radius
@@ -99,16 +103,68 @@ class AgenteRL(gym.Env):
         self.maxclients = max_clients
         self.grid_size = grid_size
         # self.action_space = spaces.Discrete(5)
-        self.max_battery_inital = 1000
+        self.max_battery_inital = 100
         self.battery = self.max_battery_inital
         self.action_space = gym.spaces.Discrete(21)  
-        self.observation_space = spaces.Box(low=0, high=1000, shape=(grid_size*grid_size + 2+1,), dtype=int)
+        self.observation_space = spaces.Box(low=0, high=100, shape=(grid_size*grid_size + 2+1,), dtype=int)
         # spaces.Box(low=0, high=1, shape=(10, 10, 3), dtype=np.float32)  #Imagem com 3 cores rgb(transformar em uma matriz com 0 ou 1, contendo as posições q possuem
         
         self.reset()
         
     def _get_state(self):
-        return np.concatenate([self.clientes_grid.flatten(), self.posicao, [self.battery]])
+        # state = [
+        #     x_drone, y_drone, battery,  # Posição do drone
+        #     x_1, y_1, dist_1, dir_1_x, dir_1_y, estado, tempo,  # Primeiro usuário
+        #     x_2, y_2, dist_2, dir_2_x, dir_2_y, estado, tempo,# Segundo usuário
+        #     # ... até o máximo de usuários
+        #     0, 0, 0, 0,  # Padding para slots não usados
+        # ]
+        num_max_clientes = 100
+        num_status = 7
+        state_system = np.zeros(3 + num_max_clientes * num_status)
+
+        # Normalização da posição e bateria
+        state_system[0] = self.posicao[1] / self.grid_size  # Normaliza as posições x e y do drone
+        state_system[1] = self.posicao[0] / self.grid_size
+        state_system[2] = self.battery / self.max_battery_inital  # Normaliza a bateria
+        if len(self.users_time) == 0: max_time = 1
+        else: max_time = max(self.users_time)
+        if max_time == 0: max_time = 1
+
+        index = 0
+        start_idx = 3
+        for i, u in enumerate(self.user_states):
+            if u in [2, 3]:  # Considera os estados 2 e 3
+                # Cálculo da distância e direção
+                distance = np.sqrt((self.users_positions[i][0] - self.posicao[0])**2 + (self.users_positions[i][1] - self.posicao[1])**2)
+                direction_y = self.users_positions[i][0] - self.posicao[0]
+                direction_x = self.users_positions[i][1] - self.posicao[1]
+                
+                # Normalização
+                norm_distance = distance / np.sqrt(2 * (self.grid_size ** 2))  # Normaliza a distância pela diagonal da grade
+                norm_direction_x = direction_x / self.grid_size  # Normaliza a direção x
+                norm_direction_y = direction_y / self.grid_size  # Normaliza a direção y
+                norm_time = self.users_time[i] / max_time # Normaliza o tempo do usuário
+                
+                state_system[start_idx:start_idx + num_status] = [
+                    self.users_positions[i][1] / self.grid_size,  # Normaliza a posição x do usuário
+                    self.users_positions[i][0] / self.grid_size,  # Normaliza a posição y do usuário
+                    norm_distance,
+                    norm_direction_x,
+                    norm_direction_y,
+                    u / TOTAL_STATES,  # Estado do usuário (2 ou 3)
+                    norm_time
+                ]
+                index += 1
+                start_idx = 3 + index * num_status
+
+        # state_normalized = [
+        #     50/100, 50/100,      # Posição normalizada
+        #     20/100,              # Distância normalizada
+        #     10/100, -10/100      # Direção normalizada
+        # ]
+        # return np.concatenate([self.clientes_grid.flatten(), self.posicao, [self.battery]])
+        return state_system
 
     def step(self, action):
         
@@ -202,14 +258,14 @@ class AgenteRL(gym.Env):
         elif direction == 2:
             self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)  # leste
         elif direction == 3:
-            self.posicao[1] = max(0, self.posicao[1] - speed)  # oeste
+            self.posicao[1] = max(0, self.posicao[1] - speed)
         # elif action == 4:
             # pass  # Ficar parado
         energy_COST = energia_voo(self.posicao, last_position, speed)
         # print(speed, energy_COST)
         # self.battery -= speed/10
         energy_penalty = energy_COST
-        self.battery -= energy_COST/10
+        self.battery -= energy_COST/50
         return self.posicao, energy_penalty
     
     def get_reward(self, energy_penalty):
@@ -226,12 +282,12 @@ class AgenteRL(gym.Env):
             if self.user_states[i] == 3:
                 tempo_esperando = self.users_time[i]
                 if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
-                    reward += 2000/(5+(tempo_esperando/20))  # Adiciona 1 para evitar divisão por zero
+                    reward += 300 # Adiciona 1 para evitar divisão por zero
                     self.sum_accepts += 1
                     # sum_time += self.users_time[i]
                     # users_waiting += 1
                 else: # Penalidade por ter usuário sem cobertura
-                    reward -= 2*tempo_esperando
+                    reward -= 2
                     self.sum_rejects += 1
                 self.user_states[i] = 1
                 self.users_time[i] = 0
@@ -243,24 +299,24 @@ class AgenteRL(gym.Env):
                     # self.users_time[i] +=1
                     users_waiting += 1
                     qty += 1
-                    reward += 75
+                    reward += 150
                     
                     cost_voo, _, _= energia_sobrevoo(self.posicao, self.users_positions[i])
                     # print(cost_voo, cost_tt, cost_33)
                     energy_sobrevoo += cost_voo
-                    self.battery -= cost_voo/10
+                    self.battery -= cost_voo/20
                     
                     
                 else:
                     n_pegou += 1
                     self.users_time[i] += 1
-                    reward -= self.users_time[i]/20
+                    reward -= self.users_time[i]/500
                     
         if energy_penalty == 0 and aguardando == n_pegou:
-            reward -= 3
+            reward -= 8
         energy_penalty = energy_penalty + energy_sobrevoo
         # if reward > 0:
-        reward = reward - (energy_penalty/120)
+        reward = reward - (energy_penalty/1500)
         # else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
@@ -282,8 +338,8 @@ class AgenteRL(gym.Env):
         self.battery = self.max_battery_inital
         self.consecutive_positive_rewards = 0 
         self.consecutive_negative_rewards = 0
-        self.max_consecutive_positive_rewards = 50
-        self.max_consecutive_negative = 250
+        self.max_consecutive_positive_rewards = 100
+        self.max_consecutive_negative = 350
 
         self.sum_accepts = 0
         self.sum_rejects = 0
@@ -308,16 +364,20 @@ class AgenteRL(gym.Env):
             self.users_time.append(0)
             self.users_positions.append(user_position)
             
+        # definindo usuário inicial como estado 2
+        user2 = np.random.randint(0, random_clients_qty)
+        self.user_states[user2] = 2
+            
         self.state = self._get_state()
-        return self.state, ''
+        return self.state
     
     def render(self, screen, episode, total_reward, step, epsilon):
         
         screen.fill((255, 255, 255))  # Limpa a tela com branco
         block_size = 8  # Tamanho de cada bloco no grid
         color = (0,0, 255)
-        for i in range(0, 100):
-            for y in range(0,100):
+        for i in range(0, GRID_SIZE):
+            for y in range(0,GRID_SIZE):
                 if np.linalg.norm(self.posicao - (i, y)) == self.coverage_radius:
                     pygame.draw.rect(screen, color, (y * block_size, i * block_size, block_size, block_size))
         # Desenha os usuários

@@ -18,12 +18,12 @@ import torch.nn.functional as F
 import os
 
 class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, output_size):
+    def __init__(self, input_size, hidden_size, hidden2_size, output_size):
         super().__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
         self.linear2 = nn.Linear(hidden_size, hidden2_size)
-        self.linear3 = nn.Linear(hidden2_size, hidden3_size)
-        self.linear4 = nn.Linear(hidden3_size, output_size)
+        # self.linear3 = nn.Linear(hidden2_size, hidden3_size)
+        self.linear4 = nn.Linear(hidden2_size, output_size)
         
         # self.layers = nn.Sequential(
         #     # nn.Flatten(),
@@ -41,7 +41,7 @@ class Linear_QNet(nn.Module):
         # return self.layers(x)
         x = F.relu(self.linear1(x))
         x = F.relu(self.linear2(x))
-        x = F.relu(self.linear3(x))
+        # x = F.relu(self.linear3(x))
         x = self.linear4(x)
         return x
 
@@ -50,9 +50,10 @@ class Linear_QNet(nn.Module):
         if not os.path.exists(model_folder_path):
             os.makedirs(model_folder_path)
 
+        path_name = file_name
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
-        torch.save(self.state_dict(), 'model/model.pth')
+        torch.save(self.state_dict(), f'model/remember_normalized_{path_name}')
 
 
 class QTrainer:
@@ -123,11 +124,11 @@ class Agent:
 
     def __init__(self):
         self.n_games = 0
-        self.epsilon = 1 # randomness
-        self.epsilon_decay = 0.997
+        self.epsilon = 0.8 # randomness
+        self.epsilon_decay = 0.9985
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(10003, 512, 256, 128, 21)
+        self.model = Linear_QNet(703, 256, 128, 21)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -161,7 +162,8 @@ class Agent:
         
         #MOVIMENTOS: ESQUEDA, DIREITA E FICAR PARADO
         # self.epsilon = 80 - self.n_games
-        final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
+        # state = (state - np.mean(state)) / np.std(state)
+        final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0,0] # ADD=> [,   0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
         if np.random.rand() < self.epsilon:
             move = random.randint(0, 20)
             final_move[move] = 1
@@ -171,10 +173,12 @@ class Agent:
             prediction = self.model(state)
             # print(prediction)
             move = torch.argmax(prediction).item()
+            # if (test):print("move:", move)
+            
             # print(move)
             final_move[move] = 1
-        if self.epsilon > 0.1 and test==False: self.epsilon = self.epsilon*self.epsilon_decay
-        
+        # if self.epsilon > 0.1 and test==False: self.epsilon = self.epsilon*self.epsilon_decay
+        # print("final move:", final_move)
         return final_move
 
 
@@ -212,15 +216,17 @@ def train(plotar = False):
         score = reward
         state_new = agent.get_state(game)
 
+        # //// ======== ========== TRAINING short MEMORY =========== ======== \\\\\
         # train short memory
         agent.train_short_memory(state_old, final_move, reward, state_new, done)
-
         # remember
         agent.remember(state_old, final_move, reward, state_new, done)
+        
+        
         tempo += 1
         total_reward += reward
 
-        if done or tempo > 1500:
+        if done or tempo > 2500:
 
             print("Done:" , done)
             # train long memory, plot result
@@ -240,7 +246,7 @@ def train(plotar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
-            agent.epsilon = 1
+            agent.epsilon = 0.8-(agent.n_games)
 
             # score = total_time
             # plot_scores.append(score)
@@ -249,10 +255,10 @@ def train(plotar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode == 5): 
+            if(episode % 50 == 0): 
                 print("SAVING MODEL")
-                agent.model.save()
-                break
+                agent.model.save(file_name='model'+ str(episode) + '.pth')
+            if episode == 500: break
             
     if plotar: pygame.quit()
 
@@ -262,7 +268,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'model.pth')
+    model_path = os.path.join(current_dir, 'model', 'remember_normalized_model500.pth')
     record = 0
     # agent = load
     agent = Agent()
@@ -275,21 +281,23 @@ def test():
     score = 0
     total_reward = 0
     
-    agent.epsilon = 0.1
+    agent.epsilon = 0.2
     epsilon = agent.epsilon
     
     screen = initialize_graph(game.grid_size)
 
     while True:
-        tm.sleep(0.1)
+        tm.sleep(0.05)
         tempo += 1
         # get old state
         game.render(screen, episode, score, tempo, epsilon=epsilon)
         state_old = agent.get_state(game)
+        # print(state_old)
 
         # get move
         final_move = agent.get_action(state_old, test=True)
         movement = np.argmax(final_move)
+        # print(movement)
 
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
