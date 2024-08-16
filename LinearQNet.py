@@ -17,6 +17,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 import os
 
+QTD_MOVEMENT = 41
+versao = 0 # 500
+LAST_MODEL = 'remember21_normalized_model' + str(versao) + '.pth'
 class Linear_QNet(nn.Module):
     def __init__(self, input_size, hidden_size, hidden2_size, output_size):
         super().__init__()
@@ -53,7 +56,9 @@ class Linear_QNet(nn.Module):
         path_name = file_name
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
-        torch.save(self.state_dict(), f'model/remember_normalized_{path_name}')
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        torch.save(self.state_dict(), path_to_save)
 
 
 class QTrainer:
@@ -118,7 +123,8 @@ class QTrainer:
 
 MAX_MEMORY = 100_000
 BATCH_SIZE = 10000
-LR = 0.002
+LR_anterior = 0.002
+LR = 0.0008
 
 class Agent:
 
@@ -128,7 +134,7 @@ class Agent:
         self.epsilon_decay = 0.9985
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(703, 256, 128, 21)
+        self.model = Linear_QNet(5603, 256, 128, QTD_MOVEMENT)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -163,9 +169,9 @@ class Agent:
         #MOVIMENTOS: ESQUEDA, DIREITA E FICAR PARADO
         # self.epsilon = 80 - self.n_games
         # state = (state - np.mean(state)) / np.std(state)
-        final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0,0] # ADD=> [,   0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
+        final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0,0,    0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0] # ADD=> [,   0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
         if np.random.rand() < self.epsilon:
-            move = random.randint(0, 20)
+            move = random.randint(0, QTD_MOVEMENT-1)
             final_move[move] = 1
         else:
             # state0 = torch.tensor(state, dtype=torch.float)
@@ -182,7 +188,7 @@ class Agent:
         return final_move
 
 
-def train(plotar = False):
+def train(plotar = False, continuar = False):
     plot_scores = []
     plot_mean_scores = []
     total_score = 0
@@ -190,10 +196,17 @@ def train(plotar = False):
     agent = Agent()
     game = AgenteRL()
     
+    if continuar == True:
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(current_dir, 'model', LAST_MODEL)
+        agent.model.load_state_dict(torch.load(model_path, map_location=device))
+    
     episode = 0
     tempo = 0
     score = 0
     total_reward = 0
+    decay_epsilon = 0
     
     #users data
     # total_time = 0
@@ -226,14 +239,16 @@ def train(plotar = False):
         tempo += 1
         total_reward += reward
 
-        if done or tempo > 2500:
+        if done or tempo > 1500:
 
             print("Done:" , done)
+            decay_epsilon += 1
             # train long memory, plot result
             game.reset()
             episode += 1
             tempo = 0
             agent.n_games += 1
+            
             agent.train_long_memory()
 
             if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
@@ -246,7 +261,7 @@ def train(plotar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
-            agent.epsilon = 0.8-(agent.n_games)
+            agent.epsilon = 0.8-(decay_epsilon)
 
             # score = total_time
             # plot_scores.append(score)
@@ -257,7 +272,9 @@ def train(plotar = False):
             
             if(episode % 50 == 0): 
                 print("SAVING MODEL")
-                agent.model.save(file_name='model'+ str(episode) + '.pth')
+                decay_epsilon = 0
+                versao_modelo = episode + versao
+                agent.model.save(file_name='model'+ str(versao_modelo) + '.pth')
             if episode == 500: break
             
     if plotar: pygame.quit()
@@ -268,7 +285,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'remember_normalized_model500.pth')
+    model_path = os.path.join(current_dir, 'model', 'remember_dist-5600_41_normalized_model150.pth')
     record = 0
     # agent = load
     agent = Agent()
@@ -281,16 +298,16 @@ def test():
     score = 0
     total_reward = 0
     
-    agent.epsilon = 0.2
+    agent.epsilon = 0.05
     epsilon = agent.epsilon
     
     screen = initialize_graph(game.grid_size)
 
     while True:
-        tm.sleep(0.05)
+        tm.sleep(0.1)
         tempo += 1
         # get old state
-        game.render(screen, episode, score, tempo, epsilon=epsilon)
+        game.render(screen, episode, total_reward, tempo, epsilon=epsilon)
         state_old = agent.get_state(game)
         # print(state_old)
 
@@ -306,7 +323,7 @@ def test():
         # tempo += 1
         # print(reward)
         total_reward += reward
-
+        # if reward > 100: print(reward, " - ", total_reward)
         # train short memory
         # agent.train_short_memory(state_old, final_move, reward, state_new, done)
 
@@ -323,4 +340,5 @@ def test():
 
 if __name__ == '__main__':
     train(plotar=False)
+    # train(continuar = True)
     test()

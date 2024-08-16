@@ -163,7 +163,7 @@ class AgenteRL(gym.Env):
         #     20/100,              # Distância normalizada
         #     10/100, -10/100      # Direção normalizada
         # ]
-        # return np.concatenate([self.clientes_grid.flatten(), self.posicao, [self.battery]])
+        return np.concatenate([self.clientes_grid.flatten(), state_system])
         return state_system
 
     def step(self, action):
@@ -247,18 +247,33 @@ class AgenteRL(gym.Env):
     
     def take_action(self, action):
         last_position = self.posicao.copy()
-        direction = action // 5
-        speed = (action % 5) + 1  # Speed range from 1 to 5
-        if action == 20: # parado
+        direction = action // 5  # Determina a direção (0 a 7)
+        speed = (action % 5) + 1  # Velocidade de 1 a 5
+
+        if action == 40:  # Ficar parado
             speed = 0
-        elif direction == 0:
-            self.posicao[0] = max(0, self.posicao[0] - speed)  # norte
-        elif direction == 1:
-            self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)  # sul
-        elif direction == 2:
-            self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)  # leste
-        elif direction == 3:
-            self.posicao[1] = max(0, self.posicao[1] - speed)
+        else:
+            # Movimentos baseados na direção
+            if direction == 0:  # Norte
+                self.posicao[0] = max(0, self.posicao[0] - speed)
+            elif direction == 1:  # Sul
+                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+            elif direction == 2:  # Leste
+                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+            elif direction == 3:  # Oeste
+                self.posicao[1] = max(0, self.posicao[1] - speed)
+            elif direction == 4:  # Nordeste
+                self.posicao[0] = max(0, self.posicao[0] - speed)
+                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+            elif direction == 5:  # Noroeste
+                self.posicao[0] = max(0, self.posicao[0] - speed)
+                self.posicao[1] = max(0, self.posicao[1] - speed)
+            elif direction == 6:  # Sudeste
+                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+            elif direction == 7:  # Sudoeste
+                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+                self.posicao[1] = max(0, self.posicao[1] - speed)
         # elif action == 4:
             # pass  # Ficar parado
         energy_COST = energia_voo(self.posicao, last_position, speed)
@@ -277,47 +292,64 @@ class AgenteRL(gym.Env):
         aguardando = 0
         n_pegou = 0
         energy_sobrevoo = 0
+        min_distance = 100000
+        index_min = -1
         for i in range(len(self.users_positions)):
-        
+            current_distance = np.linalg.norm(self.posicao - self.users_positions[i])
+
             if self.user_states[i] == 3:
                 tempo_esperando = self.users_time[i]
-                if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
-                    reward += 300 # Adiciona 1 para evitar divisão por zero
+                if current_distance <= self.coverage_radius:
+                    reward += 300
                     self.sum_accepts += 1
-                    # sum_time += self.users_time[i]
-                    # users_waiting += 1
-                else: # Penalidade por ter usuário sem cobertura
+                else:
                     reward -= 2
                     self.sum_rejects += 1
                 self.user_states[i] = 1
                 self.users_time[i] = 0
             elif self.user_states[i] == 2:
+                if current_distance < min_distance:
+                    index_min = i
+                    min_distance = current_distance
                 aguardando += 1
-                if np.linalg.norm(self.posicao - self.users_positions[i]) <= self.coverage_radius:
+                if current_distance <= self.coverage_radius:
                     self.user_states[i] = 3
                     sum_time += self.users_time[i]
-                    # self.users_time[i] +=1
                     users_waiting += 1
                     qty += 1
                     reward += 150
-                    
-                    cost_voo, _, _= energia_sobrevoo(self.posicao, self.users_positions[i])
-                    # print(cost_voo, cost_tt, cost_33)
+
+                    cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
                     energy_sobrevoo += cost_voo
-                    self.battery -= cost_voo/20
-                    
-                    
+                    self.battery -= cost_voo / 20
                 else:
                     n_pegou += 1
                     self.users_time[i] += 1
-                    reward -= self.users_time[i]/500
-                    
+                    reward -= self.users_time[i] / 500 
+
+            # # Comparar a distância atual com a anterior
+            # distance_diff = self.previous_distances[i] - current_distance
+            # if distance_diff > 0:
+            #     reward += 2  # Recompensa se a distância diminuiu
+            # else:
+            #     reward -= 5  # Penalidade se a distância aumentou ou ficou igual
+
+            # Atualiza a distância anterior
+            self.previous_distances[i] = current_distance
+        
+        if index_min != -1 and index_min == self.index_min_previous:
+            distance_diff = self.previous_distances[index_min] - min_distance
+            if distance_diff > 0:
+                reward += 10  # Recompensa se a distância diminuiu
+            else:
+                reward -= 0.5  # Penalidade se a distância aumentou ou ficou igual     
+        self.index_min_previous = index_min
+
         if energy_penalty == 0 and aguardando == n_pegou:
             reward -= 8
         energy_penalty = energy_penalty + energy_sobrevoo
-        # if reward > 0:
-        reward = reward - (energy_penalty/1500)
-        # else:
+        reward = reward - (energy_penalty / 1500)
+        #   else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
         # reward = reward - (users_waiting)
@@ -367,6 +399,9 @@ class AgenteRL(gym.Env):
         # definindo usuário inicial como estado 2
         user2 = np.random.randint(0, random_clients_qty)
         self.user_states[user2] = 2
+        num_max_clientes = 100
+        self.previous_distances = np.zeros(num_max_clientes)
+        self.index_min_previous = -1
             
         self.state = self._get_state()
         return self.state
