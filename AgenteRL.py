@@ -102,6 +102,9 @@ class AgenteRL(gym.Env):
         self.user_disappearance_prob = 0.04
         self.maxclients = max_clients
         self.grid_size = grid_size
+        
+        self.max_consecutive_positive_rewards = 400
+        self.max_consecutive_negative = 700
         # self.action_space = spaces.Discrete(5)
         self.max_battery_inital = 100
         self.battery = self.max_battery_inital
@@ -164,7 +167,11 @@ class AgenteRL(gym.Env):
         #     10/100, -10/100      # Direção normalizada
         # ]
         return np.concatenate([self.clientes_grid.flatten(), state_system])
-        return state_system
+        #return state_system
+        
+    def get_positions(self):
+        if self.index_min_previous == -1: return self.posicao, self.posicao
+        return self.posicao, self.users_positions[self.index_min_previous]
 
     def step(self, action):
         
@@ -181,7 +188,7 @@ class AgenteRL(gym.Env):
         if reward > 0:
             self.consecutive_positive_rewards += 1
             self.consecutive_negative_rewards = 0
-        else:
+        elif reward < 0:
             self.consecutive_positive_rewards = 0
             self.consecutive_negative_rewards += 1
             
@@ -370,8 +377,6 @@ class AgenteRL(gym.Env):
         self.battery = self.max_battery_inital
         self.consecutive_positive_rewards = 0 
         self.consecutive_negative_rewards = 0
-        self.max_consecutive_positive_rewards = 100
-        self.max_consecutive_negative = 350
 
         self.sum_accepts = 0
         self.sum_rejects = 0
@@ -406,7 +411,7 @@ class AgenteRL(gym.Env):
         self.state = self._get_state()
         return self.state
     
-    def render(self, screen, episode, total_reward, step, epsilon):
+    def render(self, screen, episode, total_reward, step, epsilon, confidence = 1.0):
         
         screen.fill((255, 255, 255))  # Limpa a tela com branco
         block_size = 8  # Tamanho de cada bloco no grid
@@ -434,7 +439,7 @@ class AgenteRL(gym.Env):
 
         # Adiciona texto de status
         font = pygame.font.SysFont(None, 24)
-        text = font.render(f'Episode: {episode} | Step: {step} | Total Reward: {total_reward:9.4f} | battery: {self.battery:9.4f} || e: {epsilon:9.4f}', True, (0, 0, 0))
+        text = font.render(f'Ep: {episode} | Step: {step} | Tt Rw: {total_reward:9.4f} | batt: {self.battery:9.4f} || e:{epsilon:9.4f} | cnf: {confidence}', True, (0, 0, 0))
         screen.blit(text, (10, self.grid_size * block_size + 10))
 
         pygame.display.flip()  # Atualiza a tela

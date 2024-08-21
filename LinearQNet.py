@@ -16,17 +16,21 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import os
+import sys
 
 QTD_MOVEMENT = 41
 versao = 0 # 500
 LAST_MODEL = 'remember21_normalized_model' + str(versao) + '.pth'
 class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, hidden2_size, output_size):
+    def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, hidden4_size, output_size):
         super().__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
         self.linear2 = nn.Linear(hidden_size, hidden2_size)
-        # self.linear3 = nn.Linear(hidden2_size, hidden3_size)
-        self.linear4 = nn.Linear(hidden2_size, output_size)
+        self.linear3 = nn.Linear(hidden2_size, hidden3_size)
+        self.linear4 = nn.Linear(hidden3_size, hidden4_size)
+        self.linear5 = nn.Linear(hidden4_size, output_size)
+        
+        self.dropout = nn.Dropout(p=0.05)
         
         # self.layers = nn.Sequential(
         #     # nn.Flatten(),
@@ -43,9 +47,13 @@ class Linear_QNet(nn.Module):
         # x = self.linear2(x)
         # return self.layers(x)
         x = F.relu(self.linear1(x))
+        x = self.dropout(x) 
         x = F.relu(self.linear2(x))
-        # x = F.relu(self.linear3(x))
-        x = self.linear4(x)
+        x = self.dropout(x) 
+        x = F.relu(self.linear3(x))
+        x = self.dropout(x) 
+        x = F.relu(self.linear4(x))
+        x = self.linear5(x)
         return x
 
     def save(self, file_name='model.pth'):
@@ -57,7 +65,7 @@ class Linear_QNet(nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-T5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
         torch.save(self.state_dict(), path_to_save)
 
 
@@ -66,8 +74,8 @@ class QTrainer:
         self.lr = lr
         self.gamma = gamma
         self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr)
-        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=1e-4)
+        self.criterion = nn.CrossEntropyLoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
         
@@ -81,8 +89,8 @@ class QTrainer:
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
         else:
-            state = torch.tensor(state, dtype=torch.float)
-            next_state = torch.tensor(next_state, dtype=torch.float)
+            state = state.clone().detach()
+            next_state = next_state.clone().detach()
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
         # done = (done,)
@@ -124,17 +132,17 @@ class QTrainer:
 MAX_MEMORY = 100_000
 BATCH_SIZE = 10000
 LR_anterior = 0.002
-LR = 0.0008
+LR = 0.0006
 
 class Agent:
 
     def __init__(self):
         self.n_games = 0
-        self.epsilon = 0.8 # randomness
+        self.epsilon = 0.7 # randomness
         self.epsilon_decay = 0.9985
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(5603, 256, 128, QTD_MOVEMENT)
+        self.model = Linear_QNet(5603, 2500, 1250, 361, 128, QTD_MOVEMENT)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -173,6 +181,7 @@ class Agent:
         if np.random.rand() < self.epsilon:
             move = random.randint(0, QTD_MOVEMENT-1)
             final_move[move] = 1
+            confidence = -1
         else:
             # state0 = torch.tensor(state, dtype=torch.float)
             # print("state0:", state0)
@@ -181,12 +190,52 @@ class Agent:
             move = torch.argmax(prediction).item()
             # if (test):print("move:", move)
             
+            probabilities = torch.softmax(prediction, dim=0)  # Convertendo logits para probabilidades
+            confidence = probabilities[int(move)].item() 
+            #sys.stdout.write(str(probabilities))
+            #sys.stdout.write(str(confidence))
+            #sys.stdout.flush()
+            #print(probabilities, confidence)
             # print(move)
-            final_move[move] = 1
+            final_move[int(move)] = 1
         # if self.epsilon > 0.1 and test==False: self.epsilon = self.epsilon*self.epsilon_decay
         # print("final move:", final_move)
-        return final_move
+        return final_move, confidence
 
+
+def definir_action(drone_position, user_position):
+    # Calcular distâncias
+    dist_x = user_position[0] - drone_position[0]
+    dist_y = user_position[1] - drone_position[1]
+
+    # Determinar direção
+    if dist_x < 0 and dist_y == 0:
+        direction = 0  # Norte
+    elif dist_x > 0 and dist_y == 0:
+        direction = 1  # Sul
+    elif dist_x == 0 and dist_y > 0:
+        direction = 2  # Leste
+    elif dist_x == 0 and dist_y < 0:
+        direction = 3  # Oeste
+    elif dist_x < 0 and dist_y > 0:
+        direction = 4  # Nordeste
+    elif dist_x < 0 and dist_y < 0:
+        direction = 5  # Noroeste
+    elif dist_x > 0 and dist_y > 0:
+        direction = 6  # Sudeste
+    elif dist_x > 0 and dist_y < 0:
+        direction = 7  # Sudoeste
+
+    # Calcular velocidade
+    speed = min(max(abs(dist_x), abs(dist_y)), 5)
+
+    # Definir a ação
+    if np.all(user_position == drone_position):
+        action = 40  # Ficar parado
+    else:
+        action = direction * 5 + (speed - 1)
+
+    return action
 
 def train(plotar = False, continuar = False):
     plot_scores = []
@@ -220,7 +269,7 @@ def train(plotar = False, continuar = False):
         state_old = agent.get_state(game)
 
         # get move
-        final_move = agent.get_action(state_old, test=False)
+        final_move, _ = agent.get_action(state_old, test=False)
         movement = np.argmax(final_move)
 
         # perform move and get new state
@@ -261,7 +310,7 @@ def train(plotar = False, continuar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
-            agent.epsilon = 0.8-(decay_epsilon)
+            agent.epsilon = 0.7-(decay_epsilon)
 
             # score = total_time
             # plot_scores.append(score)
@@ -270,12 +319,12 @@ def train(plotar = False, continuar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode % 50 == 0): 
+            if(episode % 75 == 0): 
                 print("SAVING MODEL")
                 decay_epsilon = 0
                 versao_modelo = episode + versao
                 agent.model.save(file_name='model'+ str(versao_modelo) + '.pth')
-            if episode == 500: break
+            if episode == 2500: break
             
     if plotar: pygame.quit()
 
@@ -285,7 +334,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'remember_dist-5600_41_normalized_model150.pth')
+    model_path = os.path.join(current_dir, 'model', 'remember_dist_-T5600_41_normalized_model1500.pth')
     record = 0
     # agent = load
     agent = Agent()
@@ -298,6 +347,7 @@ def test():
     score = 0
     total_reward = 0
     
+    confidence = 0.0
     agent.epsilon = 0.05
     epsilon = agent.epsilon
     
@@ -307,14 +357,19 @@ def test():
         tm.sleep(0.1)
         tempo += 1
         # get old state
-        game.render(screen, episode, total_reward, tempo, epsilon=epsilon)
+        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence)
         state_old = agent.get_state(game)
         # print(state_old)
 
         # get move
-        final_move = agent.get_action(state_old, test=True)
+        final_move, confidence = agent.get_action(state_old, test=True)
+        # print(final_move)
         movement = np.argmax(final_move)
         # print(movement)
+        
+        if confidence < 0.88:
+            drone_pos, user_pos = game.get_positions()
+            movement = definir_action(drone_pos, user_pos)
 
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
