@@ -108,8 +108,8 @@ class AgenteRL(gym.Env):
         # self.action_space = spaces.Discrete(5)
         self.max_battery_inital = 100
         self.battery = self.max_battery_inital
-        self.action_space = gym.spaces.Discrete(21)  
-        self.observation_space = spaces.Box(low=0, high=100, shape=(grid_size*grid_size + 2+1,), dtype=int)
+        self.action_space = gym.spaces.Discrete(41)  
+        self.observation_space = spaces.Box(low=0, high=100, shape=(703,), dtype=float)
         # spaces.Box(low=0, high=1, shape=(10, 10, 3), dtype=np.float32)  #Imagem com 3 cores rgb(transformar em uma matriz com 0 ou 1, contendo as posições q possuem
         
         self.reset()
@@ -166,8 +166,8 @@ class AgenteRL(gym.Env):
         #     20/100,              # Distância normalizada
         #     10/100, -10/100      # Direção normalizada
         # ]
-        return np.concatenate([self.clientes_grid.flatten(), state_system])
-        #return state_system
+        #return np.concatenate([self.clientes_grid.flatten(), state_system])
+        return state_system
         
     def get_positions(self):
         if self.index_min_previous == -1: return self.posicao, self.posicao
@@ -185,12 +185,12 @@ class AgenteRL(gym.Env):
 
        
         
-        if reward > 0:
-            self.consecutive_positive_rewards += 1
-            self.consecutive_negative_rewards = 0
-        elif reward < 0:
-            self.consecutive_positive_rewards = 0
-            self.consecutive_negative_rewards += 1
+        # if reward > 0:
+        #     self.consecutive_positive_rewards += 1
+        #     self.consecutive_negative_rewards = 0
+        # elif reward < 0:
+        #     self.consecutive_positive_rewards = 0
+        #     self.consecutive_negative_rewards += 1
             
         conditions = self.consecutive_negative_rewards >= self.max_consecutive_negative or self.consecutive_positive_rewards >= self.max_consecutive_positive_rewards
         done = self.is_done(reward) or conditions
@@ -304,17 +304,18 @@ class AgenteRL(gym.Env):
         for i in range(len(self.users_positions)):
             current_distance = np.linalg.norm(self.posicao - self.users_positions[i])
 
-            if self.user_states[i] == 3:
+            if self.user_states[i] == 3:  # Usuário aguardando
                 tempo_esperando = self.users_time[i]
                 if current_distance <= self.coverage_radius:
-                    reward += 300
+                    reward += 125 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
                     self.sum_accepts += 1
                 else:
-                    reward -= 2
+                    reward -= 4.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
                     self.sum_rejects += 1
                 self.user_states[i] = 1
                 self.users_time[i] = 0
-            elif self.user_states[i] == 2:
+
+            elif self.user_states[i] == 2:  # Usuário ativo
                 if current_distance < min_distance:
                     index_min = i
                     min_distance = current_distance
@@ -324,7 +325,7 @@ class AgenteRL(gym.Env):
                     sum_time += self.users_time[i]
                     users_waiting += 1
                     qty += 1
-                    reward += 150
+                    reward += 235 - (self.users_time[i] * 0.1)  # Recompensa maior por tempo de espera reduzido
 
                     cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
                     energy_sobrevoo += cost_voo
@@ -332,7 +333,8 @@ class AgenteRL(gym.Env):
                 else:
                     n_pegou += 1
                     self.users_time[i] += 1
-                    reward -= self.users_time[i] / 500 
+                    reward -= self.users_time[i] * 0.005  # Penalidade por tempo de espera
+                    # reward -= self.users_time[i] / 5000 
 
             # # Comparar a distância atual com a anterior
             # distance_diff = self.previous_distances[i] - current_distance
@@ -347,15 +349,15 @@ class AgenteRL(gym.Env):
         if index_min != -1 and index_min == self.index_min_previous:
             distance_diff = self.previous_distances[index_min] - min_distance
             if distance_diff > 0:
-                reward += 10  # Recompensa se a distância diminuiu
+                reward += 20  # Recompensa se a distância diminuiu
             else:
-                reward -= 0.5  # Penalidade se a distância aumentou ou ficou igual     
+                reward -= 0.3  # Penalidade se a distância aumentou ou ficou igual     
         self.index_min_previous = index_min
 
         if energy_penalty == 0 and aguardando == n_pegou:
-            reward -= 8
+            reward -= 1
         energy_penalty = energy_penalty + energy_sobrevoo
-        reward = reward - (energy_penalty / 1500)
+        # reward = reward - (energy_penalty / 2500)
         #   else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)

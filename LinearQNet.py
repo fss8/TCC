@@ -25,8 +25,8 @@ class Linear_QNet(nn.Module):
     def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, hidden4_size, output_size):
         super().__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden2_size)
-        self.linear3 = nn.Linear(hidden2_size, hidden3_size)
+        #self.linear2 = nn.Linear(hidden_size, hidden2_size)
+        self.linear3 = nn.Linear(hidden_size, hidden3_size)
         self.linear4 = nn.Linear(hidden3_size, hidden4_size)
         self.linear5 = nn.Linear(hidden4_size, output_size)
         
@@ -48,8 +48,8 @@ class Linear_QNet(nn.Module):
         # return self.layers(x)
         x = F.relu(self.linear1(x))
         x = self.dropout(x) 
-        x = F.relu(self.linear2(x))
-        x = self.dropout(x) 
+        # x = F.relu(self.linear2(x))
+        # x = self.dropout(x) 
         x = F.relu(self.linear3(x))
         x = self.dropout(x) 
         x = F.relu(self.linear4(x))
@@ -65,7 +65,7 @@ class Linear_QNet(nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-T5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-KsO5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
         torch.save(self.state_dict(), path_to_save)
 
 
@@ -75,7 +75,7 @@ class QTrainer:
         self.gamma = gamma
         self.model = model
         self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=1e-4)
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
         
@@ -126,23 +126,24 @@ class QTrainer:
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
         self.optimizer.step()
 
 MAX_MEMORY = 100_000
 BATCH_SIZE = 10000
 LR_anterior = 0.002
-LR = 0.0006
+LR = 0.0007
 
 class Agent:
 
     def __init__(self):
         self.n_games = 0
-        self.epsilon = 0.7 # randomness
+        self.epsilon = 0.9 # randomness
         self.epsilon_decay = 0.9985
         self.gamma = 0.9 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(5603, 2500, 1250, 361, 128, QTD_MOVEMENT)
+        self.model = Linear_QNet(703, 720, 750, 361, 128, QTD_MOVEMENT)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -195,7 +196,8 @@ class Agent:
             #sys.stdout.write(str(probabilities))
             #sys.stdout.write(str(confidence))
             #sys.stdout.flush()
-            #print(probabilities, confidence)
+            #
+            # print(probabilities, confidence)
             # print(move)
             final_move[int(move)] = 1
         # if self.epsilon > 0.1 and test==False: self.epsilon = self.epsilon*self.epsilon_decay
@@ -291,7 +293,7 @@ def train(plotar = False, continuar = False):
         if done or tempo > 1500:
 
             print("Done:" , done)
-            decay_epsilon += 1
+            if episode < 80 : decay_epsilon += 1
             # train long memory, plot result
             game.reset()
             episode += 1
@@ -310,7 +312,7 @@ def train(plotar = False, continuar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
-            agent.epsilon = 0.7-(decay_epsilon)
+            agent.epsilon = 0.9-(decay_epsilon)
 
             # score = total_time
             # plot_scores.append(score)
@@ -319,12 +321,13 @@ def train(plotar = False, continuar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode % 75 == 0): 
+            if(episode % 50 == 0): 
                 print("SAVING MODEL")
-                decay_epsilon = 0
+                
+                # decay_epsilon = 0
                 versao_modelo = episode + versao
                 agent.model.save(file_name='model'+ str(versao_modelo) + '.pth')
-            if episode == 2500: break
+            if episode == 1600: break
             
     if plotar: pygame.quit()
 
@@ -334,7 +337,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'remember_dist_-T5600_41_normalized_model1500.pth')
+    model_path = os.path.join(current_dir, 'model', 'remember_dist_-KsO5600_41_normalized_model150.pth')
     record = 0
     # agent = load
     agent = Agent()
@@ -367,9 +370,11 @@ def test():
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.88:
+        if confidence < 0.78:
             drone_pos, user_pos = game.get_positions()
             movement = definir_action(drone_pos, user_pos)
+        else:
+            print(movement)
 
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
@@ -394,6 +399,9 @@ def test():
     pygame.quit()
 
 if __name__ == '__main__':
-    train(plotar=False)
+    if sys.argv[1] == 't':
+        train(plotar=False)
+    if sys.argv[2] == 'c':
+        train(continuar=True)
     # train(continuar = True)
     test()
