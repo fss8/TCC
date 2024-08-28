@@ -7,7 +7,7 @@ import random
 import math
 from math import log2
 
-
+import time
 
 
 
@@ -98,7 +98,7 @@ class AgenteRL(gym.Env):
         super(AgenteRL, self).__init__()
         
         self.coverage_radius = coverage_radius
-        self.new_user_prob = 0.04
+        self.new_user_prob = 0.12
         self.user_disappearance_prob = 0.04
         self.maxclients = max_clients
         self.grid_size = grid_size
@@ -251,36 +251,41 @@ class AgenteRL(gym.Env):
                 #     self.user_states[index] = 0
         
         
-    
-    def take_action(self, action):
-        last_position = self.posicao.copy()
+    def get_next_position(self, position, action):
         direction = action // 5  # Determina a direção (0 a 7)
         speed = (action % 5) + 1  # Velocidade de 1 a 5
-
+        next_position = position.copy()
         if action == 40:  # Ficar parado
             speed = 0
         else:
             # Movimentos baseados na direção
             if direction == 0:  # Norte
-                self.posicao[0] = max(0, self.posicao[0] - speed)
+                next_position[0] = max(0, self.posicao[0] - speed)
             elif direction == 1:  # Sul
-                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
             elif direction == 2:  # Leste
-                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 3:  # Oeste
-                self.posicao[1] = max(0, self.posicao[1] - speed)
+                next_position[1] = max(0, self.posicao[1] - speed)
             elif direction == 4:  # Nordeste
-                self.posicao[0] = max(0, self.posicao[0] - speed)
-                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+                next_position[0] = max(0, self.posicao[0] - speed)
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 5:  # Noroeste
-                self.posicao[0] = max(0, self.posicao[0] - speed)
-                self.posicao[1] = max(0, self.posicao[1] - speed)
+                next_position[0] = max(0, self.posicao[0] - speed)
+                next_position[1] = max(0, self.posicao[1] - speed)
             elif direction == 6:  # Sudeste
-                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
-                self.posicao[1] = min(self.grid_size - 1, self.posicao[1] + speed)
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 7:  # Sudoeste
-                self.posicao[0] = min(self.grid_size - 1, self.posicao[0] + speed)
-                self.posicao[1] = max(0, self.posicao[1] - speed)
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
+                next_position[1] = max(0, self.posicao[1] - speed)
+        return next_position
+    
+    def take_action(self, action):
+        last_position = self.posicao.copy()
+
+        speed = (action % 5) + 1
+        self.posicao = self.get_next_position(last_position, action)
         # elif action == 4:
             # pass  # Ficar parado
         energy_COST = energia_voo(self.posicao, last_position, speed)
@@ -307,7 +312,7 @@ class AgenteRL(gym.Env):
             if self.user_states[i] == 3:  # Usuário aguardando
                 tempo_esperando = self.users_time[i]
                 if current_distance <= self.coverage_radius:
-                    reward += 125 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
+                    reward += 55 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
                     self.sum_accepts += 1
                 else:
                     reward -= 4.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
@@ -325,7 +330,7 @@ class AgenteRL(gym.Env):
                     sum_time += self.users_time[i]
                     users_waiting += 1
                     qty += 1
-                    reward += 235 - (self.users_time[i] * 0.1)  # Recompensa maior por tempo de espera reduzido
+                    # reward += 235 - (self.users_time[i] * 0.1)  # Recompensa maior por tempo de espera reduzido
 
                     cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
                     energy_sobrevoo += cost_voo
@@ -333,8 +338,10 @@ class AgenteRL(gym.Env):
                 else:
                     n_pegou += 1
                     self.users_time[i] += 1
-                    reward -= self.users_time[i] * 0.005  # Penalidade por tempo de espera
+                    # reward -= self.users_time[i] * 0.005  # Penalidade por tempo de espera
                     # reward -= self.users_time[i] / 5000 
+                    
+            
 
             # # Comparar a distância atual com a anterior
             # distance_diff = self.previous_distances[i] - current_distance
@@ -346,6 +353,7 @@ class AgenteRL(gym.Env):
             # Atualiza a distância anterior
             self.previous_distances[i] = current_distance
         
+        if users_waiting > 0:reward += ( users_waiting / (users_waiting + n_pegou) ) * 3
         if index_min != -1 and index_min == self.index_min_previous:
             distance_diff = self.previous_distances[index_min] - min_distance
             if distance_diff > 0:
@@ -357,7 +365,7 @@ class AgenteRL(gym.Env):
         if energy_penalty == 0 and aguardando == n_pegou:
             reward -= 1
         energy_penalty = energy_penalty + energy_sobrevoo
-        # reward = reward - (energy_penalty / 2500)
+        reward = reward - (energy_penalty / 2500)
         #   else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
@@ -413,7 +421,7 @@ class AgenteRL(gym.Env):
         self.state = self._get_state()
         return self.state
     
-    def render(self, screen, episode, total_reward, step, epsilon, confidence = 1.0):
+    def render(self, screen, episode, total_reward, step, epsilon, confidence = 1.0, list_positions = None):
         
         screen.fill((255, 255, 255))  # Limpa a tela com branco
         block_size = 8  # Tamanho de cada bloco no grid
@@ -438,12 +446,24 @@ class AgenteRL(gym.Env):
 
         # Desenha o drone
         pygame.draw.rect(screen, (0, 0, 255), (self.posicao[1] * block_size, self.posicao[0] * block_size, block_size, block_size))
+        
+        # Desenhar a linha entre a posição anterior e a nova posição
+        if list_positions:
+            previous_position = list_positions[0]
+            for i, v in enumerate(list_positions):
+                if i > 0:
+                    next_position = list_positions[i]
+                    # if np.all(previous_position == next_position): print('IGUALLLL')
+                    # print("denhsa")
+                    pygame.draw.line(screen, (255, 0, 0), [previous_position[1] * block_size, previous_position[0] * block_size], [next_position[1] * block_size, next_position[0] * block_size], 10)  # Cor vermelha, largura da linha 2 pixels
+                    previous_position = next_position
 
         # Adiciona texto de status
         font = pygame.font.SysFont(None, 24)
         text = font.render(f'Ep: {episode} | Step: {step} | Tt Rw: {total_reward:9.4f} | batt: {self.battery:9.4f} || e:{epsilon:9.4f} | cnf: {confidence}', True, (0, 0, 0))
         screen.blit(text, (10, self.grid_size * block_size + 10))
 
+        # time.sleep(0.2)
         pygame.display.flip()  # Atualiza a tela
         
 

@@ -21,6 +21,7 @@ import sys
 QTD_MOVEMENT = 41
 versao = 0 # 500
 LAST_MODEL = 'remember21_normalized_model' + str(versao) + '.pth'
+PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
     def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, hidden4_size, output_size):
         super().__init__()
@@ -65,7 +66,7 @@ class Linear_QNet(nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-KsO5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-Rn5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
         torch.save(self.state_dict(), path_to_save)
 
 
@@ -265,7 +266,6 @@ def train(plotar = False, continuar = False):
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
         # get old state
-        # tm.sleep(0.3)
         epsilon = agent.epsilon
         if plotar: game.render(screen, episode, total_reward, tempo, epsilon)
         state_old = agent.get_state(game)
@@ -330,6 +330,47 @@ def train(plotar = False, continuar = False):
             if episode == 1600: break
             
     if plotar: pygame.quit()
+    
+def simulate_next_positions(agent ,game, action, next_position):
+    
+    game_copy = AgenteRL()
+    return_positions = []
+    # game_copy
+    game_copy.battery = game.battery
+    # self.consecutive_positive_rewards = 0 
+    # self.consecutive_negative_rewards = 0
+
+    # self.sum_accepts = 0
+    # self.sum_rejects = 0
+    # game_copy.total_time_waiting = game.total_time_waiting
+    game_copy.num_waiting = game.num_waiting
+    
+    game_copy.posicao = game.posicao.copy()
+    game_copy.clientes_grid = game.clientes_grid.copy()
+    game_copy.users_positions = game.users_positions.copy()
+    game_copy.users_time = game.users_time.copy()
+    # self.user_states = [ ]
+    
+    game_copy.user_states = game.user_states.copy()
+    # game_copy.
+    for i in range(PREVISION_LENGTH):
+        game_copy.undeterministic_random_movement()
+            
+        acao, penalty = game_copy.take_action(action)
+        
+        # for i in range(0,)
+        prev_pos = game_copy.posicao.copy()
+        state_old = agent.get_state(game_copy)
+        final_move, confidence = agent.get_action(state_old, test=True)
+        movement = np.argmax(final_move)
+
+        next_position = game_copy.get_next_position(prev_pos, movement)
+        # list_positions[1] = next_position
+        # print(movement)
+        # if np.all(position == next_position): print('ENGUALL')
+        return_positions.append(next_position)
+        # print(return_positions)
+    return return_positions
 
 def test():
     plot_scores = []
@@ -337,7 +378,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'remember_dist_-KsO5600_41_normalized_model150.pth')
+    model_path = os.path.join(current_dir, 'model', 'remember_dist_-Rn5600_41_normalized_model150.pth')
     record = 0
     # agent = load
     agent = Agent()
@@ -350,6 +391,9 @@ def test():
     score = 0
     total_reward = 0
     
+    initial_position_copy = game.posicao.copy()
+    list_positions = [initial_position_copy]
+    for i in range(PREVISION_LENGTH): list_positions.append(initial_position_copy)
     confidence = 0.0
     agent.epsilon = 0.05
     epsilon = agent.epsilon
@@ -360,22 +404,35 @@ def test():
         tm.sleep(0.1)
         tempo += 1
         # get old state
-        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence)
         state_old = agent.get_state(game)
         # print(state_old)
-
+        list_positions[0] = game.posicao.copy()
         # get move
         final_move, confidence = agent.get_action(state_old, test=True)
         # print(final_move)
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.78:
+        if confidence < 0.86:
             drone_pos, user_pos = game.get_positions()
             movement = definir_action(drone_pos, user_pos)
         else:
-            print(movement)
+            # print(movement)
+            pass
+            
+            
+            
+        # list_positions[0] = game.posicao
+        # list_positions.append(game.posicao)
+        next_position = game.get_next_position(game.posicao, movement)
+        # list_positions[1] = next_position
+        
+        new_list_positions = simulate_next_positions(agent, game, movement, next_position)
+        for i, v in enumerate(new_list_positions):
+            # print('index', i, v)
+            list_positions[i+1] = v
 
+        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=list_positions)
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
         score = reward
