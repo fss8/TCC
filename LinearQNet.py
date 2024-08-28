@@ -19,8 +19,8 @@ import os
 import sys
 
 QTD_MOVEMENT = 41
-versao = 0 # 500
-LAST_MODEL = 'remember21_normalized_model' + str(versao) + '.pth'
+versao = 100 # 500
+LAST_MODEL = 'remember_dist_-Rn5600_41_normalized_model' + str(versao) + '.pth'
 PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
     def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, hidden4_size, output_size):
@@ -378,7 +378,7 @@ def test():
     total_score = 0
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(current_dir, 'model', 'remember_dist_-Rn5600_41_normalized_model150.pth')
+    model_path = os.path.join(current_dir, 'model', LAST_MODEL)
     record = 0
     # agent = load
     agent = Agent()
@@ -413,7 +413,7 @@ def test():
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.86:
+        if confidence < 0.002:
             drone_pos, user_pos = game.get_positions()
             movement = definir_action(drone_pos, user_pos)
         else:
