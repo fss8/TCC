@@ -351,7 +351,8 @@ class AgenteRL(gym.Env):
             #     reward -= 5  # Penalidade se a distância aumentou ou ficou igual
 
             # Atualiza a distância anterior
-            self.previous_distances[i] = current_distance
+            if i < 100: self.previous_distances[i] = current_distance
+            else: print('I maior Q 99')
         
         if users_waiting > 0:reward += ( users_waiting / (users_waiting + n_pegou) ) * 3
         if index_min != -1 and index_min == self.index_min_previous:
