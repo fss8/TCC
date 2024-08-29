@@ -166,8 +166,8 @@ class AgenteRL(gym.Env):
         #     20/100,              # Distância normalizada
         #     10/100, -10/100      # Direção normalizada
         # ]
-        #return np.concatenate([self.clientes_grid.flatten(), state_system])
-        return state_system
+        return np.concatenate([self.clientes_grid.flatten(), state_system])
+        # return state_system
         
     def get_positions(self):
         if self.index_min_previous == -1: return self.posicao, self.posicao
@@ -352,7 +352,7 @@ class AgenteRL(gym.Env):
 
             # Atualiza a distância anterior
             if i < 100: self.previous_distances[i] = current_distance
-            else: print('I maior Q 99')
+            # else: print('I maior Q 99')
         
         if users_waiting > 0:reward += ( users_waiting / (users_waiting + n_pegou) ) * 3
         if index_min != -1 and index_min == self.index_min_previous:

@@ -19,20 +19,18 @@ import os
 import sys
 
 QTD_MOVEMENT = 41
-versao = 100 # 500
-LAST_MODEL = 'remember_dist_-Rn5600_41_normalized_model' + str(versao) + '.pth'
+versao = 0 # 500
+LAST_MODEL = 'remember_dist_-LsT5600_41_normalized_model' + str(versao) + '.pth'
 PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, hidden2_size, hidden3_size, hidden4_size, output_size):
+    def __init__(self, input_size, hidden_size, rnn_hidden_size, hidden2_size, output_size, num_layers=1):
         super().__init__()
-        self.linear1 = nn.Linear(input_size, hidden_size)
-        #self.linear2 = nn.Linear(hidden_size, hidden2_size)
-        self.linear3 = nn.Linear(hidden_size, hidden3_size)
-        self.linear4 = nn.Linear(hidden3_size, hidden4_size)
-        self.linear5 = nn.Linear(hidden4_size, output_size)
+        # self.linear1 = nn.Linear(input_size, hidden_size)
+        # self.rnn = nn.LSTM(hidden_size, rnn_hidden_size, num_layers, batch_first=True)
+        self.linear2 = nn.Linear(rnn_hidden_size, hidden2_size)
+        self.linear3 = nn.Linear(hidden2_size, output_size)
         
-        self.dropout = nn.Dropout(p=0.05)
-        
+        self.rnn = nn.LSTM(input_size=input_size, hidden_size=rnn_hidden_size, num_layers=2, batch_first=True)
         # self.layers = nn.Sequential(
         #     # nn.Flatten(),
         #     nn.Linear(input_size, hidden_size),
@@ -43,19 +41,27 @@ class Linear_QNet(nn.Module):
         # )
         
 
-    def forward(self, x):
+    def forward(self, x, hidden=None):
+        # print(x)
+        # Verifica se o tensor x é 1D ou 0D e ajusta as dimensões se necessário
+        # if x.dim() == 0:
+        #     x = x.unsqueeze(0).unsqueeze(0)  # Expande para (1, 1)
+        if x.dim() == 1:
+            x = x.unsqueeze(0)  # Expande para (1, input_size)
+
         # x = F.relu(self.linear1(x))
-        # x = self.linear2(x)
-        # return self.layers(x)
-        x = F.relu(self.linear1(x))
-        x = self.dropout(x) 
         # x = F.relu(self.linear2(x))
-        # x = self.dropout(x) 
-        x = F.relu(self.linear3(x))
-        x = self.dropout(x) 
-        x = F.relu(self.linear4(x))
-        x = self.linear5(x)
-        return x
+
+        # Se a LSTM estiver sendo usada
+        if hidden is None:
+            x, hidden = self.rnn(x.unsqueeze(1))  # Adiciona dimensão para batch_first
+        else:
+            x, hidden = self.rnn(x.unsqueeze(1), hidden)
+
+        x = F.relu(self.linear2(x))
+        x = self.linear3(x)
+
+        return x, hidden
 
     def save(self, file_name='model.pth'):
         model_folder_path = 'model'
@@ -66,7 +72,7 @@ class Linear_QNet(nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-Rn5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-LsT5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
         torch.save(self.state_dict(), path_to_save)
 
 
@@ -75,60 +81,49 @@ class QTrainer:
         self.lr = lr
         self.gamma = gamma
         self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=1e-4)
+        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=2e-4)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
-        
         if memory: 
-            # print(state)
-            # print(next_state)
             state = torch.stack(state, dim=0).float()
-            # print(state)
             next_state = torch.stack(next_state, dim=0).float()
-            # print(next_state)
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
         else:
-            state = state.clone().detach()
-            next_state = next_state.clone().detach()
+            state = state.clone().detach().float()
+            next_state = next_state.clone().detach().float()
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
-        # done = (done,)
-        
-        # print(range(len(done)))
-        # (n, x)
-        # print(reward)
-        # print(action.shape)
-        # print(state.shape)
 
         if len(state.shape) == 1:
-            # (1, x)
-            state = torch.unsqueeze(state, 0)
-            next_state = torch.unsqueeze(next_state, 0)
-            action = torch.unsqueeze(action, 0)
+            # Add sequence dimension if single sequence
+            state = state.unsqueeze(0)
+            next_state = next_state.unsqueeze(0)
             reward = torch.unsqueeze(reward, 0)
-            done = (done, )
+            # action = torch.unsqueeze(action, 0)
+        done = (done,)
 
+        # Initialize hidden state
+        hidden = None
+        
         # 1: predicted Q values with current state
-        pred = self.model(state)
+        pred, hidden = self.model(state, hidden)
 
+        # Copy pred tensor to modify with target values
         target = pred.clone()
+        # print(action)
         for idx in range(len(done)):
             Q_new = reward[idx]
             if not done[idx]:
-                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
+                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx].unsqueeze(0), hidden)[0])
 
             target[idx][torch.argmax(action[idx]).item()] = Q_new
-    
-        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
-        # pred.clone()
-        # preds[argmax(action)] = Q_new
+
+        # Zero gradients, perform a backward pass, and update the weights
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
         self.optimizer.step()
 
 MAX_MEMORY = 100_000
@@ -142,9 +137,9 @@ class Agent:
         self.n_games = 0
         self.epsilon = 0.9 # randomness
         self.epsilon_decay = 0.9985
-        self.gamma = 0.9 # discount rate
+        self.gamma = 0.85 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(703, 720, 750, 361, 128, QTD_MOVEMENT)
+        self.model = Linear_QNet(5603, 720, 550, 320, QTD_MOVEMENT)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -187,13 +182,15 @@ class Agent:
         else:
             # state0 = torch.tensor(state, dtype=torch.float)
             # print("state0:", state0)
-            prediction = self.model(state)
-            # print(prediction)
+            prediction, _ = self.model(state)
+            # print('predicaooo:::>>', prediction)
             move = torch.argmax(prediction).item()
             # if (test):print("move:", move)
             
-            probabilities = torch.softmax(prediction, dim=0)  # Convertendo logits para probabilidades
+            probabilities = torch.softmax(prediction[0][0], dim=0)  # Convertendo logits para probabilidades
+            
             confidence = probabilities[int(move)].item() 
+            # print(confidence)
             #sys.stdout.write(str(probabilities))
             #sys.stdout.write(str(confidence))
             #sys.stdout.flush()
@@ -262,16 +259,17 @@ def train(plotar = False, continuar = False):
     
     #users data
     # total_time = 0
+    confiancaaa = -1
     
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
         # get old state
         epsilon = agent.epsilon
-        if plotar: game.render(screen, episode, total_reward, tempo, epsilon)
+        if plotar: game.render(screen, episode, total_reward, tempo, epsilon, confidence=confiancaaa)
         state_old = agent.get_state(game)
 
         # get move
-        final_move, _ = agent.get_action(state_old, test=False)
+        final_move, confiancaaa = agent.get_action(state_old, test=False)
         movement = np.argmax(final_move)
 
         # perform move and get new state
@@ -300,7 +298,7 @@ def train(plotar = False, continuar = False):
             tempo = 0
             agent.n_games += 1
             
-            agent.train_long_memory()
+            # agent.train_long_memory()
 
             if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
             else: media_tempo = 0
@@ -413,7 +411,7 @@ def test():
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.002:
+        if confidence < 0.05:
             drone_pos, user_pos = game.get_positions()
             movement = definir_action(drone_pos, user_pos)
         else:
