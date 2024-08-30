@@ -19,18 +19,33 @@ import os
 import sys
 
 QTD_MOVEMENT = 41
-versao = 0 # 500
+versao = 100 # 500
 LAST_MODEL = 'remember_dist_-LsT5600_41_normalized_model' + str(versao) + '.pth'
 PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, rnn_hidden_size, hidden2_size, output_size, num_layers=1):
+    def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size, output_size, grid_size=70, num_layers=1):
         super().__init__()
         # self.linear1 = nn.Linear(input_size, hidden_size)
         # self.rnn = nn.LSTM(hidden_size, rnn_hidden_size, num_layers, batch_first=True)
-        self.linear2 = nn.Linear(rnn_hidden_size, hidden2_size)
-        self.linear3 = nn.Linear(hidden2_size, output_size)
+        # self.linear2 = nn.Linear(rnn_hidden_size, hidden2_size)
+        # self.linear3 = nn.Linear(hidden2_size, output_size)
+
+        # CNN layers
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+
+        flattened_size = 1225
+        self.fc_cnn = nn.Linear(flattened_size, cnn_output_size)
+
+        self.fc1_input_size = 300  # Adjust based on maxpool output size
+        self.fc1 = nn.Linear(self.fc1_input_size, 128)
         
-        self.rnn = nn.LSTM(input_size=input_size, hidden_size=rnn_hidden_size, num_layers=2, batch_first=True)
+        # LSTM layers
+        self.lstm = nn.LSTM(input_size=cnn_output_size + system_state_size, hidden_size=rnn_hidden_size, num_layers=num_layers, batch_first=True)
+
+        self.fc_out = nn.Linear(rnn_hidden_size, output_size)
+        # self.rnn = nn.LSTM(input_size=input_size, hidden_size=rnn_hidden_size, num_layers=2, batch_first=True)
         # self.layers = nn.Sequential(
         #     # nn.Flatten(),
         #     nn.Linear(input_size, hidden_size),
@@ -41,27 +56,57 @@ class Linear_QNet(nn.Module):
         # )
         
 
-    def forward(self, x, hidden=None):
+    def forward(self, clientes_grid, state_system, hidden=None):
         # print(x)
         # Verifica se o tensor x é 1D ou 0D e ajusta as dimensões se necessário
         # if x.dim() == 0:
         #     x = x.unsqueeze(0).unsqueeze(0)  # Expande para (1, 1)
-        if x.dim() == 1:
-            x = x.unsqueeze(0)  # Expande para (1, input_size)
+        # if x.dim() == 1:
+        #     x = x.unsqueeze(0)  # Expande para (1, input_size)
 
-        # x = F.relu(self.linear1(x))
+        # # x = F.relu(self.linear1(x))
+        # # x = F.relu(self.linear2(x))
+
+        # # Se a LSTM estiver sendo usada
+        # if hidden is None:
+        #     x, hidden = self.rnn(x.unsqueeze(1))  # Adiciona dimensão para batch_first
+        # else:
+        #     x, hidden = self.rnn(x.unsqueeze(1), hidden)
+
         # x = F.relu(self.linear2(x))
+        # x = self.linear3(x)
 
-        # Se a LSTM estiver sendo usada
-        if hidden is None:
-            x, hidden = self.rnn(x.unsqueeze(1))  # Adiciona dimensão para batch_first
-        else:
-            x, hidden = self.rnn(x.unsqueeze(1), hidden)
+        # clientes_grid, state_system = x
 
-        x = F.relu(self.linear2(x))
-        x = self.linear3(x)
+        x = F.relu(self.conv1(clientes_grid))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.max_pool2d(x, kernel_size=2, stride=2)
+        print(x.shape)
+        x = torch.flatten(x, 1)  # Flatten all dimensions except batch
 
-        return x, hidden
+        print(x, x.shape)
+        x = F.relu(self.fc_cnn(x))
+        # print(x.shape)
+
+        # x = F.relu(self.fc1(x))
+
+        print(x.shape, state_system.shape)
+
+        batch_size = x.size(0)
+        state_system = state_system.expand(batch_size, -1) 
+
+        # state_system = state_system.view(state_system.size(0), -1)
+
+        # Concatenate with system state
+        x_combined = torch.cat((x, state_system), dim=1)
+
+        # LSTM forward pass
+        lstm_out, hidden = self.lstm(x_combined.unsqueeze(1), hidden)
+        out = self.fc_out(lstm_out[:, -1, :])
+        
+
+        return out, hidden
 
     def save(self, file_name='model.pth'):
         model_folder_path = 'model'
@@ -85,42 +130,58 @@ class QTrainer:
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
-        if memory: 
-            state = torch.stack(state, dim=0).float()
-            next_state = torch.stack(next_state, dim=0).float()
+        # Separar o estado em grid de clientes e estado do sistema
+        clientes_grid, state_system = state
+        print(clientes_grid)
+        next_clientes_grid, next_state_system = next_state
+
+        clientes_grid = torch.tensor(clientes_grid, dtype=torch.float32)
+        state_system = torch.tensor(state_system, dtype=torch.float32)
+        next_clientes_grid = torch.tensor(next_clientes_grid, dtype=torch.float32)
+        next_state_system = torch.tensor(next_state_system, dtype=torch.float32)
+        if memory:
+            clientes_grid = torch.stack(clientes_grid, dim=0).float()
+            state_system = torch.stack(state_system, dim=0).float()
+            next_clientes_grid = torch.stack(next_clientes_grid, dim=0).float()
+            next_state_system = torch.stack(next_state_system, dim=0).float()
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
         else:
-            state = state.clone().detach().float()
-            next_state = next_state.clone().detach().float()
+            clientes_grid = clientes_grid.clone().detach().float()
+            state_system = state_system.clone().detach().float()
+            next_clientes_grid = next_clientes_grid.clone().detach().float()
+            next_state_system = next_state_system.clone().detach().float()
             action = torch.tensor(action, dtype=torch.long)
             reward = torch.tensor(reward, dtype=torch.float)
 
-        if len(state.shape) == 1:
-            # Add sequence dimension if single sequence
-            state = state.unsqueeze(0)
-            next_state = next_state.unsqueeze(0)
-            reward = torch.unsqueeze(reward, 0)
-            # action = torch.unsqueeze(action, 0)
+        # Adicionar dimensão de sequência se necessário
+        if len(clientes_grid.shape) == 2:  # Assumindo (batch_size, grid_size1, grid_size2)
+            clientes_grid = clientes_grid.unsqueeze(0)
+            next_clientes_grid = next_clientes_grid.unsqueeze(0)
+            state_system = state_system.unsqueeze(0)
+            next_state_system = next_state_system.unsqueeze(0)
+            reward = reward.unsqueeze(0)
+
         done = (done,)
 
-        # Initialize hidden state
+        # Inicializar o estado oculto da LSTM
         hidden = None
-        
-        # 1: predicted Q values with current state
-        pred, hidden = self.model(state, hidden)
 
-        # Copy pred tensor to modify with target values
+        # Prever os valores Q com o estado atual
+        pred, hidden = self.model(clientes_grid, state_system, hidden)
+
+        # Copiar o tensor de predição para modificá-lo com os valores-alvo
         target = pred.clone()
-        # print(action)
+
         for idx in range(len(done)):
             Q_new = reward[idx]
             if not done[idx]:
-                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx].unsqueeze(0), hidden)[0])
+                next_pred, _ = self.model(next_clientes_grid[idx].unsqueeze(0), next_state_system[idx].unsqueeze(0), hidden)
+                Q_new = reward[idx] + self.gamma * torch.max(next_pred)
 
             target[idx][torch.argmax(action[idx]).item()] = Q_new
 
-        # Zero gradients, perform a backward pass, and update the weights
+        # Zerar os gradientes, realizar o backward e atualizar os pesos
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
@@ -139,7 +200,7 @@ class Agent:
         self.epsilon_decay = 0.9985
         self.gamma = 0.85 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(5603, 720, 550, 320, QTD_MOVEMENT)
+        self.model = Linear_QNet(200, 300, 703, QTD_MOVEMENT)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -149,7 +210,7 @@ class Agent:
         # return estados
         # estados2 = torch.tensor(estados, dtype=torch.float)
         # print(estados2.shape)
-        return torch.tensor(estados, dtype=torch.float)
+        return estados
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
@@ -182,7 +243,12 @@ class Agent:
         else:
             # state0 = torch.tensor(state, dtype=torch.float)
             # print("state0:", state0)
-            prediction, _ = self.model(state)
+            grid, system = state
+            grid = torch.tensor(grid, dtype=torch.float32)
+            system = torch.tensor(system, dtype=torch.float32)
+            teste = torch.randn(1, 70, 70)
+            print(grid.shape, teste.shape)
+            prediction, _ = self.model(torch.randn(1, 70, 70), system)
             # print('predicaooo:::>>', prediction)
             move = torch.argmax(prediction).item()
             # if (test):print("move:", move)

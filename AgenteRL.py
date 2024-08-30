@@ -166,7 +166,7 @@ class AgenteRL(gym.Env):
         #     20/100,              # Distância normalizada
         #     10/100, -10/100      # Direção normalizada
         # ]
-        return np.concatenate([self.clientes_grid.flatten(), state_system])
+        return self.clientes_grid, state_system
         # return state_system
         
     def get_positions(self):
