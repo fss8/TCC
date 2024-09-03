@@ -19,8 +19,8 @@ import os
 import sys
 
 QTD_MOVEMENT = 41
-versao = 100 # 500
-LAST_MODEL = 'remember_dist_-LsT5600_41_normalized_model' + str(versao) + '.pth'
+versao = 40 # 500
+LAST_MODEL = 'remember_dist_-CNNLsTM5600_41_normalized_model' + str(versao) + '.pth'
 PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
     def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, grid_size=70, num_layers=1):
@@ -79,7 +79,7 @@ class Linear_QNet(nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         print("FileName", file_name)
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-LsT5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
+        path_to_save = os.path.join(current_dir, 'model', 'remember_dist_-CNNLsTM5600_' + str(QTD_MOVEMENT) + '_normalized_'+ str(path_name))
         torch.save(self.state_dict(), path_to_save)
 
 
@@ -88,7 +88,7 @@ class QTrainer:
         self.lr = lr
         self.gamma = gamma
         self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=2e-4)
+        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
@@ -165,6 +165,8 @@ class QTrainer:
         self.optimizer.zero_grad()
         loss = self.criterion(target, pred)
         loss.backward()
+        
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
 
 MAX_MEMORY = 100_000
@@ -308,6 +310,8 @@ def train(plotar = False, continuar = False):
     total_reward = 0
     decay_epsilon = 0
     
+    agent.epsilon = 0.9
+    
     #users data
     # total_time = 0
     confiancaaa = -1
@@ -333,13 +337,13 @@ def train(plotar = False, continuar = False):
         # train short memory
         agent.train_short_memory(state_old, final_move, reward, state_new, done)
         # remember
-        agent.remember(state_old, final_move, reward, state_new, done)
+        # agent.remember(state_old, final_move, reward, state_new, done)
         
         
         tempo += 1
         total_reward += reward
 
-        if done or tempo > 1200:
+        if done or tempo > 1300:
 
             print("Done:" , done)
             if episode < 80 : decay_epsilon += 1
@@ -349,7 +353,7 @@ def train(plotar = False, continuar = False):
             tempo = 0
             agent.n_games += 1
             
-            agent.train_long_memory()
+            # agent.train_long_memory()
 
             if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
             else: media_tempo = 0
@@ -361,8 +365,9 @@ def train(plotar = False, continuar = False):
             print("Media TEMPO: ", media_tempo ,info)
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             total_reward = 0
-            agent.epsilon = 0.9-(decay_epsilon)
-
+            
+            agent.epsilon = 0.9-(decay_epsilon / 100)
+            print(decay_epsilon)
             # score = total_time
             # plot_scores.append(score)
             # total_score += score
@@ -370,7 +375,7 @@ def train(plotar = False, continuar = False):
             # plot_mean_scores.append(mean_score)
             # plot(plot_scores, plot_mean_scores)
             
-            if(episode % 50 == 0): 
+            if(episode % 20 == 0): 
                 print("SAVING MODEL")
                 
                 # decay_epsilon = 0
@@ -462,7 +467,7 @@ def test():
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.05:
+        if confidence < 0.3:
             drone_pos, user_pos = game.get_positions()
             movement = definir_action(drone_pos, user_pos)
         else:
@@ -506,7 +511,7 @@ def test():
 
 if __name__ == '__main__':
     if sys.argv[1] == 't':
-        train(plotar=True)
+        train(plotar=False)
     if sys.argv[2] == 'c':
         train(continuar=True)
     # train(continuar = True)

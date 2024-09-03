@@ -366,7 +366,7 @@ class AgenteRL(gym.Env):
         if energy_penalty == 0 and aguardando == n_pegou:
             reward -= 1
         energy_penalty = energy_penalty + energy_sobrevoo
-        reward = reward - (energy_penalty / 2500)
+        if aguardando > 0: reward = reward - (energy_penalty / 2500)
         #   else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
