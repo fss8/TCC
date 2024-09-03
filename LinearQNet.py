@@ -19,19 +19,19 @@ import os
 import sys
 
 QTD_MOVEMENT = 41
-versao = 40 # 500
+versao = 220 # 500
 LAST_MODEL = 'remember_dist_-CNNLsTM5600_41_normalized_model' + str(versao) + '.pth'
 PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
     def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, grid_size=70, num_layers=1):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)
+        # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
         self.flatten = nn.Flatten()
         
-        self.flatten_size = 128 * 17 * 17
+        self.flatten_size = 64*34*34
         self.fc1 = nn.Linear(self.flatten_size, cnn_output_size)
         
         # LSTM layers
@@ -50,7 +50,7 @@ class Linear_QNet(nn.Module):
         # Passar o grid pela CNN
         x = F.relu(self.conv1(grid))
         x = self.pool(F.relu(self.conv2(x)))
-        x = self.pool(F.relu(self.conv3(x)))
+        # x = self.pool(F.relu(self.conv3(x)))
         # print(x.shape)
         x = self.flatten(x)
         # print(x.shape)
@@ -88,7 +88,7 @@ class QTrainer:
         self.lr = lr
         self.gamma = gamma
         self.model = model
-        self.optimizer = optim.Adam(model.parameters(), lr=self.lr, weight_decay=1e-4)
+        self.optimizer = optim.SGD(model.parameters(), lr=self.lr, weight_decay=1e-4)
         self.criterion = nn.MSELoss()
 
     def train_step(self, state, action, reward, next_state, done, memory=False):
@@ -172,7 +172,7 @@ class QTrainer:
 MAX_MEMORY = 100_000
 BATCH_SIZE = 4000
 LR_anterior = 0.002
-LR = 0.0007
+LR = 0.001
 
 class Agent:
 
