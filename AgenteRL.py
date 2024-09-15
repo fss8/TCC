@@ -170,8 +170,8 @@ class AgenteRL(gym.Env):
         # return state_system
         
     def get_positions(self):
-        if self.index_min_previous == -1: return self.posicao, self.posicao
-        return self.posicao, self.users_positions[self.index_min_previous]
+        # if self.index_min_previous == -1: return self.posicao, self.posicao
+        return self.posicao, self.users_positions, self.user_states
 
     def step(self, action):
         
@@ -312,10 +312,10 @@ class AgenteRL(gym.Env):
             if self.user_states[i] == 3:  # Usuário aguardando
                 tempo_esperando = self.users_time[i]
                 if current_distance <= self.coverage_radius:
-                    reward += 55 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
+                    reward += 22 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
                     self.sum_accepts += 1
                 else:
-                    reward -= 4.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
+                    reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
                     self.sum_rejects += 1
                 self.user_states[i] = 1
                 self.users_time[i] = 0
@@ -363,7 +363,7 @@ class AgenteRL(gym.Env):
                 reward -= 0.3  # Penalidade se a distância aumentou ou ficou igual     
         self.index_min_previous = index_min
 
-        if energy_penalty == 0 and aguardando == n_pegou:
+        if energy_penalty == 0 and aguardando == n_pegou and aguardando > 0:
             reward -= 1
         energy_penalty = energy_penalty + energy_sobrevoo
         if aguardando > 0: reward = reward - (energy_penalty / 2500)
