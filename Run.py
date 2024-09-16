@@ -16,9 +16,9 @@ from plot_helper import plot, initialize_graph
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 60 # 500
-QTD_MOVEMENT = 41
-LEFT_NAME = 'md-CNNLsTM5600_41_normalized_model'
+versao = 0 # 500
+QTD_MOVEMENT = 6
+LEFT_NAME = 'mdpenalty-CNNLsTM5600_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 3
@@ -244,26 +244,30 @@ def test():
         movement = np.argmax(final_move)
         # print(movement)
         
-        if confidence < 0.03:
-            drone_pos, user_pos = game.get_positions()
-            movement = definir_action(drone_pos, user_pos)
-        else:
-            # print(movement)
-            pass
+        
+        # ======================== TESTE MOVIMENTO ==========================#
+        # if confidence < 0.06:
+        #     drone_pos, user_pos = game.get_positions()
+        #     movement = definir_action(drone_pos, user_pos)
+        # else:
+        #     # print(movement)
+        #     pass
             
             
             
         # list_positions[0] = game.posicao
         # list_positions.append(game.posicao)
-        next_position = game.get_next_position(game.posicao, movement)
-        # list_positions[1] = next_position
+        # next_position = game.get_next_position(game.posicao, movement)
+        # # list_positions[1] = next_position
         
-        new_list_positions = simulate_next_positions(agent, game, movement, next_position)
-        for i, v in enumerate(new_list_positions):
-            # print('index', i, v)
-            list_positions[i+1] = v
+        # new_list_positions = simulate_next_positions(agent, game, movement, next_position)
+        # for i, v in enumerate(new_list_positions):
+        #     # print('index', i, v)
+        #     list_positions[i+1] = v
+        
+        #=================================================================================//
 
-        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=list_positions)
+        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=[])
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
         score = reward
@@ -332,7 +336,7 @@ def test_with_kmean():
     
 if __name__ == '__main__':
     if sys.argv[1] == 't':
-        train(plotar=True)
+        train(plotar=False)
     if sys.argv[2] == 'c':
         train(continuar=True, plotar=False)
 
@@ -341,7 +345,7 @@ if __name__ == '__main__':
         # the exact output you're looking for:
         sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
         sys.stdout.flush()
-        tm.sleep(0.25)
+        tm.sleep(0.05)
     # train(continuar = True)
     test()
     # test_with_kmean()

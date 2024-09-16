@@ -14,6 +14,7 @@ import time
 # [[=== BLOCO 1 ===]]
 # [[=== _______ ===]]
 def energia_voo(DroneF, DroneI, velocity):
+    # print(DroneF, DroneI, velocity)
     Xf, Yf = DroneF # Posição final do drone
     Xi, Yi = DroneI # Posição inicial do drone
     # print(velocity)
@@ -110,7 +111,11 @@ class AgenteRL(gym.Env):
         self.max_battery_inital = 100
         self.battery = self.max_battery_inital
         self.action_space = gym.spaces.Discrete(41)  
-        self.observation_space = spaces.Box(low=0, high=100, shape=(703,), dtype=float)
+        self.observation_space = spaces.Box(low=0, high=100, shape=(705,), dtype=float)
+        
+        self.num_max_clientes = 100
+        self.num_status = 7
+        self.state_system = np.zeros(5 + self.num_max_clientes * self.num_status)
         # spaces.Box(low=0, high=1, shape=(10, 10, 3), dtype=np.float32)  #Imagem com 3 cores rgb(transformar em uma matriz com 0 ou 1, contendo as posições q possuem
         
         self.reset()
@@ -123,20 +128,20 @@ class AgenteRL(gym.Env):
         #     # ... até o máximo de usuários
         #     0, 0, 0, 0,  # Padding para slots não usados
         # ]
-        num_max_clientes = 100
-        num_status = 7
-        state_system = np.zeros(3 + num_max_clientes * num_status)
+        
 
         # Normalização da posição e bateria
-        state_system[0] = self.posicao[1] / self.grid_size  # Normaliza as posições x e y do drone
-        state_system[1] = self.posicao[0] / self.grid_size
-        state_system[2] = self.battery / self.max_battery_inital  # Normaliza a bateria
+        self.state_system[0] = self.posicao[1] / self.grid_size  # Normaliza as posições x e y do drone
+        self.state_system[1] = self.posicao[0] / self.grid_size
+        self.state_system[2] = self.direction / 8
+        self.state_system[3] = self.speed / 5
+        self.state_system[4] = self.battery / self.max_battery_inital  # Normaliza a bateria
         if len(self.users_time) == 0: max_time = 1
         else: max_time = max(self.users_time)
         if max_time == 0: max_time = 1
 
         index = 0
-        start_idx = 3
+        start_idx = 5
         for i, u in enumerate(self.user_states):
             if u in [2, 3]:  # Considera os estados 2 e 3
                 # Cálculo da distância e direção
@@ -150,7 +155,7 @@ class AgenteRL(gym.Env):
                 norm_direction_y = direction_y / self.grid_size  # Normaliza a direção y
                 norm_time = self.users_time[i] / max_time # Normaliza o tempo do usuário
                 
-                state_system[start_idx:start_idx + num_status] = [
+                self.state_system[start_idx:start_idx + self.num_status] = [
                     self.users_positions[i][1] / self.grid_size,  # Normaliza a posição x do usuário
                     self.users_positions[i][0] / self.grid_size,  # Normaliza a posição y do usuário
                     norm_distance,
@@ -160,15 +165,16 @@ class AgenteRL(gym.Env):
                     norm_time
                 ]
                 index += 1
-                start_idx = 3 + index * num_status
+                start_idx = 3 + index * self.num_status
 
         # state_normalized = [
         #     50/100, 50/100,      # Posição normalizada
         #     20/100,              # Distância normalizada
         #     10/100, -10/100      # Direção normalizada
         # ]
-        return self.clientes_grid, state_system
-        # return state_system
+        normalized_grid = self.clientes_grid/3
+        return normalized_grid, self.state_system
+        # return self.state_system
         
     def get_informations(self):
         # if self.index_min_previous == -1: return self.posicao, self.posicao
@@ -257,63 +263,75 @@ class AgenteRL(gym.Env):
         
         
     def get_next_position(self, position, action):
-        direction = action // 5  # Determina a direção (0 a 7)
-        speed = (action % 5) + 1  # Velocidade de 1 a 5
         next_position = position.copy()
-        
-        # Penalização inicial para o caso de o agente tentar sair do grid
         penalty = 0
         penalty_value = -10
 
-        # Movimentos baseados na direção
-        if action == 40:  # Ficar parado
-            speed = 0
-        else:
-            if direction == 0:  # Norte
-                if self.posicao[0] == 0:  # Já está na borda superior
-                    penalty = -penalty_value  # Penalidade por tentar sair do grid
-                next_position[0] = max(0, self.posicao[0] - speed)
-            elif direction == 1:  # Sul
-                if self.posicao[0] == self.grid_size - 1:  # Borda inferior
-                    penalty = -penalty_value
-                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
-            elif direction == 2:  # Leste
-                if self.posicao[1] == self.grid_size - 1:  # Borda direita
-                    penalty = -penalty_value
-                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
-            elif direction == 3:  # Oeste
-                if self.posicao[1] == 0:  # Borda esquerda
-                    penalty = -penalty_value
-                next_position[1] = max(0, self.posicao[1] - speed)
-            elif direction == 4:  # Nordeste
-                if self.posicao[0] == 0 or self.posicao[1] == self.grid_size - 1:
-                    penalty = -penalty_value  # Penalidade para borda superior/direita
-                next_position[0] = max(0, self.posicao[0] - speed)
-                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
-            elif direction == 5:  # Noroeste
-                if self.posicao[0] == 0 or self.posicao[1] == 0:
-                    penalty = -penalty_value  # Penalidade para borda superior/esquerda
-                next_position[0] = max(0, self.posicao[0] - speed)
-                next_position[1] = max(0, self.posicao[1] - speed)
-            elif direction == 6:  # Sudeste
-                if self.posicao[0] == self.grid_size - 1 or self.posicao[1] == self.grid_size - 1:
-                    penalty = -penalty_value  # Penalidade para borda inferior/direita
-                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
-                next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
-            elif direction == 7:  # Sudoeste
-                if self.posicao[0] == self.grid_size - 1 or self.posicao[1] == 0:
-                    penalty = -penalty_value  # Penalidade para borda inferior/esquerda
-                next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
-                next_position[1] = max(0, self.posicao[1] - speed)
-        
+        if action == 0:  # Ficar parado
+            self.speed = 0
+            return next_position, 0
+
+        if action == 1:  # Diminuir a velocidade
+            self.speed = max(1, self.speed - 1)  # Velocidade mínima é 1
+        elif action == 2:  # Manter a velocidade e direção
+            pass  # Sem mudança na velocidade ou direção
+        elif action == 3:  # Aumentar a velocidade
+            self.speed = min(5, self.speed + 1)  # Velocidade máxima é 5
+        elif action == 4:  # Mudar a direção para a esquerda
+            self.direction = (self.direction - 1) % 8
+        elif action == 5:  # Mudar a direção para a direita
+            self.direction = (self.direction + 1) % 8
+
+        # Movimentos baseados na direção (0 = Norte, 1 = Nordeste, ..., 7 = Noroeste)
+        # Verifica se já está nos limites do grid
+        if (self.direction == 0 and self.posicao[0] == 0) or \
+        (self.direction == 4 and self.posicao[0] == self.grid_size - 1):  # Norte ou Sul
+            self.speed = 0
+            penalty = -penalty_value
+        elif (self.direction == 2 and self.posicao[1] == self.grid_size - 1) or \
+            (self.direction == 6 and self.posicao[1] == 0):  # Leste ou Oeste
+            self.speed = 0
+            penalty = -penalty_value
+        elif (self.direction == 1 and (self.posicao[0] == 0 or self.posicao[1] == self.grid_size - 1)) or \
+            (self.direction == 3 and (self.posicao[0] == self.grid_size - 1 or self.posicao[1] == self.grid_size - 1)) or \
+            (self.direction == 5 and (self.posicao[0] == self.grid_size - 1 or self.posicao[1] == 0)) or \
+            (self.direction == 7 and (self.posicao[0] == 0 or self.posicao[1] == 0)):  # Diagonais
+            self.speed = 0
+            penalty = -penalty_value
+
+        # Movimentos baseados na direção (0 = Norte, 1 = Nordeste, ..., 7 = Noroeste)
+        if self.speed > 0:
+            if self.direction == 0:  # Norte
+                next_position[0] = max(0, self.posicao[0] - self.speed)
+            elif self.direction == 1:  # Nordeste
+                next_position[0] = max(0, self.posicao[0] - self.speed)
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + self.speed)
+            elif self.direction == 2:  # Leste
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + self.speed)
+            elif self.direction == 3:  # Sudeste
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + self.speed)
+                next_position[1] = min(self.grid_size - 1, self.posicao[1] + self.speed)
+            elif self.direction == 4:  # Sul
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + self.speed)
+            elif self.direction == 5:  # Sudoeste
+                next_position[0] = min(self.grid_size - 1, self.posicao[0] + self.speed)
+                next_position[1] = max(0, self.posicao[1] - self.speed)
+            elif self.direction == 6:  # Oeste
+                next_position[1] = max(0, self.posicao[1] - self.speed)
+            elif self.direction == 7:  # Noroeste
+                next_position[0] = max(0, self.posicao[0] - self.speed)
+                next_position[1] = max(0, self.posicao[1] - self.speed)
+
         return next_position, penalty
+
 
     
     def take_action(self, action):
         last_position = self.posicao.copy()
 
-        speed = (action % 5) + 1
-        self.posicao, position_penalty = self.get_next_position(last_position, action)
+        speed = self.speed
+        next_position, position_penalty = self.get_next_position(last_position, action)
+        self.posicao = next_position
         # elif action == 4:
             # pass  # Ficar parado
         # if action == 40:
@@ -417,6 +435,9 @@ class AgenteRL(gym.Env):
     def reset(self, seed=None, options=None):
         if seed is not None:
             np.random.seed(seed)
+            
+        self.speed = 0
+        self.direction = 0
         
         self.battery = self.max_battery_inital
         self.consecutive_positive_rewards = 0 

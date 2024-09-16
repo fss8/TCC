@@ -54,7 +54,7 @@ class Linear_QNet(nn.Module):
         x = F.relu(self.fc1(x))
         
         if system.dim() == 1:
-            system = system.unsqueeze(0)  # De [703] para [1, 703]
+            system = system.unsqueeze(0)  # De [705] para [1, 705]
 
         x_combined = torch.cat((x, system), dim=1)
 
@@ -168,7 +168,7 @@ class QTrainer:
 MAX_MEMORY = 100_000
 BATCH_SIZE = 4000
 LR_anterior = 0.002
-LR = 0.001
+LR = 0.002
 
 class Agent:
 
@@ -179,7 +179,7 @@ class Agent:
         self.epsilon_decay = 0.9995
         self.gamma = 0.90 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(100, 300, 703, 120, qtd_movement, left_name_model)
+        self.model = Linear_QNet(100, 300, 705, 120, qtd_movement, left_name_model)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
@@ -216,7 +216,7 @@ class Agent:
         #MOVIMENTOS: ESQUEDA, DIREITA E FICAR PARADO
         # self.epsilon = 80 - self.n_games
         # state = (state - np.mean(state)) / np.std(state)
-        final_move = [0,0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0,0,    0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0] # ADD=> [,   0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
+        final_move = [0,0,0,0,0,0] # ADD=> [,   0,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0,0,0, 0]
         if np.random.rand() < self.epsilon:
             move = random.randint(0, self.qtd_movement-1)
             final_move[move] = 1
