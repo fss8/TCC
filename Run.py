@@ -16,9 +16,9 @@ from plot_helper import plot, initialize_graph
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 620 # 500
+versao = 60 # 500
 QTD_MOVEMENT = 41
-LEFT_NAME = 'remember_dist_-CNNLsTM5600_41_normalized_model'
+LEFT_NAME = 'md-CNNLsTM5600_41_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 3
@@ -107,6 +107,12 @@ def train(plotar = False, continuar = False):
         # agent.remember(state_old, final_move, reward, state_new, done)
         agent.epsilon *= agent.epsilon_decay
         
+        if tempo % 60 == 0:
+            sys.stdout.write('\r')
+            i = int(tempo/60)
+            # the exact output you're looking for:
+            sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
+            sys.stdout.flush()
         
         tempo += 1
         total_reward += reward
@@ -134,8 +140,8 @@ def train(plotar = False, continuar = False):
             print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
             
             total_score += total_reward
-            agent.epsilon = 0.9-(decay_epsilon / 100)
-            print_scores(decay_epsilon, total_reward, total_score, plot_scores, plot_mean_scores, agent.n_games)
+            agent.epsilon = 0.9-(decay_epsilon / 200)
+            #print_scores(decay_epsilon, total_reward, total_score, plot_scores, plot_mean_scores, agent.n_games)
             total_reward = 0
             if(episode % 20 == 0): 
                 print("SAVING MODEL")
@@ -181,7 +187,7 @@ def simulate_next_positions(agent ,game, action, next_position):
     for i in range(PREVISION_LENGTH):
         game_copy.undeterministic_random_movement()
             
-        acao, penalty = game_copy.take_action(action)
+        acao, penalty, pos_penalty = game_copy.take_action(action)
         
         # for i in range(0,)
         prev_pos = game_copy.posicao.copy()
@@ -189,7 +195,7 @@ def simulate_next_positions(agent ,game, action, next_position):
         final_move, confidence = agent.get_action(state_old, test=True)
         movement = np.argmax(final_move)
 
-        next_position = game_copy.get_next_position(prev_pos, movement)
+        next_position, _ = game_copy.get_next_position(prev_pos, movement)
         # list_positions[1] = next_position
         # print(movement)
         # if np.all(position == next_position): print('ENGUALL')
@@ -236,14 +242,14 @@ def test():
         final_move, confidence = agent.get_action(state_old, test=True)
         # print(final_move)
         movement = np.argmax(final_move)
-        print(movement)
+        # print(movement)
         
-        # if confidence < 0.3:
-        #     drone_pos, user_pos = game.get_positions()
-        #     movement = definir_action(drone_pos, user_pos)
-        # else:
-        #     # print(movement)
-        #     pass
+        if confidence < 0.03:
+            drone_pos, user_pos = game.get_positions()
+            movement = definir_action(drone_pos, user_pos)
+        else:
+            # print(movement)
+            pass
             
             
             
@@ -295,7 +301,7 @@ def test_with_kmean():
     screen = initialize_graph(game.grid_size)
     while True:
         tm.sleep(0.2)
-        drone_pos, user_pos, user_states = game.get_positions()
+        drone_pos, user_pos, user_states = game.get_informations()
         # print(drone_pos, user_pos, user_states)
         # contains_two = np.any(user_states == 2)
         # if contains_two:
@@ -326,9 +332,16 @@ def test_with_kmean():
     
 if __name__ == '__main__':
     if sys.argv[1] == 't':
-        train(plotar=False)
+        train(plotar=True)
     if sys.argv[2] == 'c':
-        train(continuar=True)
+        train(continuar=True, plotar=False)
+
+    for i in range(21):
+        sys.stdout.write('\r')
+        # the exact output you're looking for:
+        sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
+        sys.stdout.flush()
+        tm.sleep(0.25)
     # train(continuar = True)
     test()
     # test_with_kmean()

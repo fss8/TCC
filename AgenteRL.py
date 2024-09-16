@@ -20,8 +20,8 @@ def energia_voo(DroneF, DroneI, velocity):
     # print(DroneF, DroneI)
     # print(DroneF, DroneI)
     if(velocity > 0):
-        Pf = 200 #Potencia de voo (em watts?)
-        Vf = 250 #Velocidade de voo
+        Pf = 0.11 #Potencia de voo (em watts?)
+        Vf = (20*velocity)/5 #Velocidade de voo
         # print(DroneF, DroneI)
         distancia_voo_quad = math.sqrt((Xf - Xi)**2 + (Yf - Yi)**2)
         # print(distancia_voo_quad)
@@ -36,16 +36,16 @@ def energia_sobrevoo(DroneI, DispositivoP):
     Ux, Uy = DispositivoP # Posição do usuário
     
     
-    Ph = 200 # Potencia de sobrevoo
-    Dm = 8_000_000 # Numero de bits para computação da tarefa
+    Ph = 0.08 # Potencia de sobrevoo
+    Dm = 50_000_000 # Numero de bits para computação da tarefa
     Cm = 1000 # Número de ciclos de CPU, para computação da tarefa de 1-bit
 
-    # ------ calculo  - para uma tarefa?
-    Fm_DT = 2_000_000_000 # Frequência estimada do ciclo de CPU do UAV armazenado no Digital Twin (DT)
-    Fm_real_ = 2_000_000_000 # Clico de cpu real
-    Fm_desvio = Fm_DT - Fm_real_  # desvio da frequência de CPU entre o seu valor real e o armazenado em DT (avaliar se pode ser 0)
+    # ------ calculo  - para uma tarefa? ou para ficar parado
+    # Fm_DT = 2_000_000_000 # Frequência estimada do ciclo de CPU do UAV armazenado no Digital Twin (DT)
+    # Fm_real_ = 2_000_000_000 # Clico de cpu real
+    # Fm_desvio = Fm_DT - Fm_real_  # desvio da frequência de CPU entre o seu valor real e o armazenado em DT (atualmente sendo 0)
 
-    B = 10_000_000 # Banda do sistema
+    B = 100_000_000 # Banda do sistema
     o2 = 1*(10**-9) # Ruido aditivo Gaussiano branco de potência
     p = 0.1 # Potencia de transmissão do usuário
 
@@ -53,14 +53,15 @@ def energia_sobrevoo(DroneI, DispositivoP):
     distancia_user_modulo_elev_quad = (Ux - Xi)**2 + (Uy - Yi)**2 # distancia até o usuário ||distancia||  elevado ao quadrado
     if distancia_user_modulo_elev_quad == 0: distancia_user_modulo_elev_quad = 1
     h = B0/(distancia_user_modulo_elev_quad) # ganho de potencia do canal na LoS(linha de visão)
-    RmjUAV = B*log2(1+((p*h)/o2)) # taxa de transmissão do user para o drone (ou do drone para o user?)
-    # print(RmjUAV)
+    RmjUAV = B*log2(1+((p*h)/o2)) # taxa de transmissão do usuario para o drone (ou do drone para o usuario?)
+
     TmjUAV_trans = Dm/RmjUAV
 
     # estimado_Tm = (Dm*Cm)/Fm_DT
     # computing_time_gap = (Dm*Cm*Fm_desvio)/(Fm_DT*(Fm_DT-Fm_desvio))
     TmjUAV = 0 # estimado_Tm + computing_time_gap
     Ehov = Ph*(TmjUAV_trans + TmjUAV)
+    # print('EHOV:', Ehov)
     return Ehov, Ph*TmjUAV_trans, Ph*TmjUAV
 
 
@@ -169,17 +170,21 @@ class AgenteRL(gym.Env):
         return self.clientes_grid, state_system
         # return state_system
         
-    def get_positions(self):
+    def get_informations(self):
         # if self.index_min_previous == -1: return self.posicao, self.posicao
         return self.posicao, self.users_positions, self.user_states
+    
+    def get_positions(self):
+        if self.index_min_previous == -1: return self.posicao, self.posicao
+        return self.posicao, self.users_positions[self.index_min_previous]
 
     def step(self, action):
         
         self.undeterministic_random_movement()
         
-        acao, penalty = self.take_action(action)
+        acao, penalty, pos_penalty = self.take_action(action)
 
-        reward, total_time, reqs, u_waiting = self.get_reward(penalty)
+        reward, total_time, reqs, u_waiting = self.get_reward(penalty, pos_penalty)
 
         # self.observation, info = self.get_observation()  #ambiente deveria mudar
 
@@ -255,47 +260,72 @@ class AgenteRL(gym.Env):
         direction = action // 5  # Determina a direção (0 a 7)
         speed = (action % 5) + 1  # Velocidade de 1 a 5
         next_position = position.copy()
+        
+        # Penalização inicial para o caso de o agente tentar sair do grid
+        penalty = 0
+        penalty_value = -10
+
+        # Movimentos baseados na direção
         if action == 40:  # Ficar parado
             speed = 0
         else:
-            # Movimentos baseados na direção
             if direction == 0:  # Norte
+                if self.posicao[0] == 0:  # Já está na borda superior
+                    penalty = -penalty_value  # Penalidade por tentar sair do grid
                 next_position[0] = max(0, self.posicao[0] - speed)
             elif direction == 1:  # Sul
+                if self.posicao[0] == self.grid_size - 1:  # Borda inferior
+                    penalty = -penalty_value
                 next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
             elif direction == 2:  # Leste
+                if self.posicao[1] == self.grid_size - 1:  # Borda direita
+                    penalty = -penalty_value
                 next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 3:  # Oeste
+                if self.posicao[1] == 0:  # Borda esquerda
+                    penalty = -penalty_value
                 next_position[1] = max(0, self.posicao[1] - speed)
             elif direction == 4:  # Nordeste
+                if self.posicao[0] == 0 or self.posicao[1] == self.grid_size - 1:
+                    penalty = -penalty_value  # Penalidade para borda superior/direita
                 next_position[0] = max(0, self.posicao[0] - speed)
                 next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 5:  # Noroeste
+                if self.posicao[0] == 0 or self.posicao[1] == 0:
+                    penalty = -penalty_value  # Penalidade para borda superior/esquerda
                 next_position[0] = max(0, self.posicao[0] - speed)
                 next_position[1] = max(0, self.posicao[1] - speed)
             elif direction == 6:  # Sudeste
+                if self.posicao[0] == self.grid_size - 1 or self.posicao[1] == self.grid_size - 1:
+                    penalty = -penalty_value  # Penalidade para borda inferior/direita
                 next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
                 next_position[1] = min(self.grid_size - 1, self.posicao[1] + speed)
             elif direction == 7:  # Sudoeste
+                if self.posicao[0] == self.grid_size - 1 or self.posicao[1] == 0:
+                    penalty = -penalty_value  # Penalidade para borda inferior/esquerda
                 next_position[0] = min(self.grid_size - 1, self.posicao[0] + speed)
                 next_position[1] = max(0, self.posicao[1] - speed)
-        return next_position
+        
+        return next_position, penalty
+
     
     def take_action(self, action):
         last_position = self.posicao.copy()
 
         speed = (action % 5) + 1
-        self.posicao = self.get_next_position(last_position, action)
+        self.posicao, position_penalty = self.get_next_position(last_position, action)
         # elif action == 4:
             # pass  # Ficar parado
+        # if action == 40:
         energy_COST = energia_voo(self.posicao, last_position, speed)
+        hover_COST, _,_ = energia_sobrevoo(self.posicao, self.posicao)
         # print(speed, energy_COST)
         # self.battery -= speed/10
-        energy_penalty = energy_COST
-        self.battery -= energy_COST/50
-        return self.posicao, energy_penalty
+        energy_penalty = energy_COST + hover_COST
+        self.battery -= energy_penalty
+        return self.posicao, energy_penalty, position_penalty
     
-    def get_reward(self, energy_penalty):
+    def get_reward(self, energy_penalty, pos_penalty):
         reward = 0
         users_waiting = 0
         sum_time = 0
@@ -312,7 +342,7 @@ class AgenteRL(gym.Env):
             if self.user_states[i] == 3:  # Usuário aguardando
                 tempo_esperando = self.users_time[i]
                 if current_distance <= self.coverage_radius:
-                    reward += 22 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
+                    reward += 30 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
                     self.sum_accepts += 1
                 else:
                     reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
@@ -330,7 +360,7 @@ class AgenteRL(gym.Env):
                     sum_time += self.users_time[i]
                     users_waiting += 1
                     qty += 1
-                    # reward += 235 - (self.users_time[i] * 0.1)  # Recompensa maior por tempo de espera reduzido
+                    reward += 15 - (self.users_time[i] * 0.001)  # Recompensa maior por tempo de espera reduzido
 
                     cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
                     energy_sobrevoo += cost_voo
@@ -365,8 +395,11 @@ class AgenteRL(gym.Env):
 
         if energy_penalty == 0 and aguardando == n_pegou and aguardando > 0:
             reward -= 1
-        energy_penalty = energy_penalty + energy_sobrevoo
-        if aguardando > 0: reward = reward - (energy_penalty / 2500)
+        energy_penalty = (energy_penalty) + energy_sobrevoo
+        if aguardando > 0: 
+            reward = reward - (energy_penalty / 2500)
+            reward = reward - pos_penalty
+        
         #   else:
         #     reward = (reward*(energy_penalty))/(len(self.user_states)+1)
         # print(reward)
@@ -461,7 +494,7 @@ class AgenteRL(gym.Env):
 
         # Adiciona texto de status
         font = pygame.font.SysFont(None, 24)
-        text = font.render(f'Ep: {episode} | Step: {step} | Tt Rw: {total_reward:9.4f} | batt: {self.battery:9.4f} || e:{epsilon:9.4f} | cnf: {confidence}', True, (0, 0, 0))
+        text = font.render(f'Ep:{episode} | Step:{step} | Tt Rw:{total_reward:9.2f} | batt:{self.battery:9.2f} || e:{epsilon:9.4f} | cnf: {confidence}', True, (0, 0, 0))
         screen.blit(text, (10, self.grid_size * block_size + 10))
 
         # time.sleep(0.2)

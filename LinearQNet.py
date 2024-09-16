@@ -18,13 +18,13 @@ import sys
 class Linear_QNet(nn.Module):
     def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, left_name_model, grid_size=70, num_layers=1):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)
+        self.conv1 = nn.Conv2d(1, 12, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(12, 24, kernel_size=3, stride=1, padding=0)
         # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
         self.flatten = nn.Flatten()
         
-        self.flatten_size = 64*34*34
+        self.flatten_size = 24*34*34
         self.fc1 = nn.Linear(self.flatten_size, cnn_output_size)
         
         # LSTM layers
@@ -177,9 +177,9 @@ class Agent:
         self.n_games = 0
         self.epsilon = 0.9 # randomness
         self.epsilon_decay = 0.9995
-        self.gamma = 0.85 # discount rate
+        self.gamma = 0.90 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(300, 300, 703, 120, qtd_movement, left_name_model)
+        self.model = Linear_QNet(100, 300, 703, 120, qtd_movement, left_name_model)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
