@@ -265,7 +265,8 @@ class AgenteRL(gym.Env):
     def get_next_position(self, position, action):
         next_position = position.copy()
         penalty = 0
-        penalty_value = -10
+        penalty_value = -4
+        limites_grid = False
 
         if action == 0:  # Ficar parado
             self.speed = 0
@@ -287,16 +288,19 @@ class AgenteRL(gym.Env):
         if (self.direction == 0 and self.posicao[0] == 0) or \
         (self.direction == 4 and self.posicao[0] == self.grid_size - 1):  # Norte ou Sul
             self.speed = 0
-            penalty = -penalty_value
+            limites_grid = True
         elif (self.direction == 2 and self.posicao[1] == self.grid_size - 1) or \
             (self.direction == 6 and self.posicao[1] == 0):  # Leste ou Oeste
             self.speed = 0
-            penalty = -penalty_value
+            limites_grid = True
         elif (self.direction == 1 and (self.posicao[0] == 0 or self.posicao[1] == self.grid_size - 1)) or \
             (self.direction == 3 and (self.posicao[0] == self.grid_size - 1 or self.posicao[1] == self.grid_size - 1)) or \
             (self.direction == 5 and (self.posicao[0] == self.grid_size - 1 or self.posicao[1] == 0)) or \
             (self.direction == 7 and (self.posicao[0] == 0 or self.posicao[1] == 0)):  # Diagonais
             self.speed = 0
+            limites_grid = True
+            
+        if limites_grid == True and action in [2,3]:
             penalty = -penalty_value
 
         # Movimentos baseados na direção (0 = Norte, 1 = Nordeste, ..., 7 = Noroeste)
