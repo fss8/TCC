@@ -1,3 +1,4 @@
+import math
 import torch
 import random
 import numpy as np
@@ -16,46 +17,106 @@ from plot_helper import plot, initialize_graph
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 0 # 500
+versao = 40 # 500
 QTD_MOVEMENT = 6
 LEFT_NAME = 'mdpenalty-CNNLsTM5600_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 3
 
-def definir_action(drone_position, user_position):
+def calcular_angulo(drone_position, user_position):
+    dist_x = drone_position[0] - user_position[0]
+    dist_y = drone_position[1] - user_position[1]
+
+    # Calcula o ângulo em radianos e depois converte para graus
+    angulo = math.degrees(math.atan2(dist_y, dist_x))
+
+    # Converte o ângulo para o intervalo de [0, 360)
+    if angulo < 0:
+        angulo += 360
+
+    return angulo
+
+def definir_direction(angulo):
+    # Define a direção com base no ângulo
+    # print(angulo)
+    # Define a direção com base no ângulo (ajustado conforme a regra)
+    if 67.5 <= angulo < 112.5:
+        return 6  # Norte
+    elif 22.5 <= angulo < 67.5:
+        return 7  # Nordeste
+    elif 337.5 <= angulo or angulo < 22.5:
+        return 0  # Leste
+    elif 292.5 <= angulo < 337.5:
+        return 1  # Sudeste
+    elif 247.5 <= angulo < 292.5:
+        return 2  # Sul
+    elif 202.5 <= angulo < 247.5:
+        return 3  # Sudoeste
+    elif 157.5 <= angulo < 202.5:
+        return 4  # Oeste
+    elif 112.5 <= angulo < 157.5:
+        return 5  # Noroeste
+
+def definir_action(drone_position, user_position, drone_speed, drone_direction):
     # Calcular distâncias
     dist_x = user_position[0] - drone_position[0]
     dist_y = user_position[1] - drone_position[1]
+    
+    # Se o drone já estiver na posição do usuário, fica parado
+    if dist_x == 0 and dist_y == 0:
+        return 0  # Ficar parado
+    
+    # Calcula o ângulo entre o drone e o usuário
+    # print(drone_direction)
+    # print(drone_position, user_position)
+    # tm.sleep(0.5)
+    # angulo = calcular_angulo(drone_position, user_position)
+    
+    # # Determina a direção com base no ângulo
+    # target_direction = definir_direction(angulo)
 
+    
     # Determinar direção
     if dist_x < 0 and dist_y == 0:
-        direction = 0  # Norte
+        target_direction = 0  # Norte
     elif dist_x > 0 and dist_y == 0:
-        direction = 1  # Sul
+        target_direction = 4  # Sul
     elif dist_x == 0 and dist_y > 0:
-        direction = 2  # Leste
+        target_direction = 2  # Leste
     elif dist_x == 0 and dist_y < 0:
-        direction = 3  # Oeste
+        target_direction = 6  # Oeste
+
+
     elif dist_x < 0 and dist_y > 0:
-        direction = 4  # Nordeste
+        target_direction = 1  # Nordeste
     elif dist_x < 0 and dist_y < 0:
-        direction = 5  # Noroeste
+        target_direction = 7  # Noroeste
     elif dist_x > 0 and dist_y > 0:
-        direction = 6  # Sudeste
+        target_direction = 3  # Sudeste
     elif dist_x > 0 and dist_y < 0:
-        direction = 7  # Sudoeste
+        target_direction = 5  # Sudoeste
 
-    # Calcular velocidade
-    speed = min(max(abs(dist_x), abs(dist_y)), 5)
+    # print(drone_direction,target_direction)
 
-    # Definir a ação
-    if np.all(user_position == drone_position):
-        action = 40  # Ficar parado
+    # Caso a direção atual seja diferente da direção alvo
+    if drone_direction != target_direction:
+        diff_direction = (target_direction - drone_direction) % 8
+        if diff_direction <= 4:
+            return 5  # Girar para a direita (ação 5)
+        else:
+            return 4  # Girar para a esquerda (ação 4)
+
+    # Se a direção estiver correta, ajustar velocidade
+    desired_speed = min(max(abs(dist_x), abs(dist_y)), 5)  # Velocidade desejada baseada na distância
+
+    if drone_speed > desired_speed:
+        return 1  # Diminuir velocidade
+    elif drone_speed < desired_speed:
+        return 3  # Aumentar velocidade
     else:
-        action = direction * 5 + (speed - 1)
+        return 2  # Manter velocidade e direção
 
-    return action
 
 def train(plotar = False, continuar = False):
     plot_scores = []
@@ -246,12 +307,12 @@ def test():
         
         
         # ======================== TESTE MOVIMENTO ==========================#
-        # if confidence < 0.06:
-        #     drone_pos, user_pos = game.get_positions()
-        #     movement = definir_action(drone_pos, user_pos)
-        # else:
-        #     # print(movement)
-        #     pass
+        if confidence < 0.5:
+            drone_pos, user_pos = game.get_positions()
+            movement = definir_action(drone_pos, user_pos, game.speed, game.direction)
+        else:
+            # print(movement)
+            pass
             
             
             
