@@ -19,7 +19,7 @@ print(device)
 
 versao = 2120 # 500
 QTD_MOVEMENT = 6
-LEFT_NAME = 'mdpenalty-CNNLsTM5600_6_normalized_model'
+LEFT_NAME = 'TCC-TASK-CNNLsTM5600_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 13
@@ -146,6 +146,7 @@ def train(plotar = False, continuar = False):
     
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
+        tm.sleep(0.1)
         # get old state
         epsilon = agent.epsilon
         if plotar: game.render(screen, episode, total_reward, tempo, epsilon, confidence=confiancaaa)
@@ -419,7 +420,9 @@ def test_with_kmean():
     
     
 if __name__ == '__main__':
-    if sys.argv[1] == 't':
+    if sys.argv[1] == 'tp':
+        train(plotar=True)
+    elif sys.argv[1] == 't':
         train(plotar=False)
     if sys.argv[2] == 'c':
         train(continuar=True, plotar=False)

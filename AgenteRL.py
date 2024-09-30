@@ -116,7 +116,8 @@ class AgenteRL(gym.Env):
         self.observation_space = spaces.Box(low=0, high=100, shape=(705,), dtype=float)
         
         self.num_max_clientes = 100
-        self.num_status = 7
+        self.num_status = 8
+        self.max_weight_task = 10
         self.state_system = np.zeros(5 + self.num_max_clientes * self.num_status)
         # spaces.Box(low=0, high=1, shape=(10, 10, 3), dtype=np.float32)  #Imagem com 3 cores rgb(transformar em uma matriz com 0 ou 1, contendo as posições q possuem
         
@@ -156,6 +157,10 @@ class AgenteRL(gym.Env):
                 norm_direction_x = direction_x / self.grid_size  # Normaliza a direção x
                 norm_direction_y = direction_y / self.grid_size  # Normaliza a direção y
                 norm_time = self.users_time[i] / max_time # Normaliza o tempo do usuário
+                if self.process_tasks[i] > 0 and self.user_states[i] == 3:
+                    task_weight = self.process_tasks[i]/self.max_weight_task
+                else:
+                    task_weight = 0
                 
                 self.state_system[start_idx:start_idx + self.num_status] = [
                     self.users_positions[i][1] / self.grid_size,  # Normaliza a posição x do usuário
@@ -164,10 +169,11 @@ class AgenteRL(gym.Env):
                     norm_direction_x,
                     norm_direction_y,
                     u / TOTAL_STATES,  # Estado do usuário (2 ou 3)
-                    norm_time
+                    norm_time,
+                    task_weight
                 ]
                 index += 1
-                start_idx = 3 + index * self.num_status
+                start_idx = 5 + index * self.num_status
 
         # state_normalized = [
         #     50/100, 50/100,      # Posição normalizada
@@ -224,6 +230,7 @@ class AgenteRL(gym.Env):
             self.users_positions.append(new_user_position)
             self.users_time.append(0)
             self.user_states = np.append(self.user_states, 1)  # 1 para usuário novo
+            self.process_tasks = np.append(self.process_tasks, 1)
             self.clientes_grid[new_user_position[0]][new_user_position[1]] = 1
             
         index = 0
@@ -236,6 +243,7 @@ class AgenteRL(gym.Env):
                     self.users_positions.pop(user_index)
                     self.users_time.pop(user_index)
                     self.user_states = np.delete(self.user_states,user_index, 0)
+                    self.process_tasks = np.delete(self.process_tasks, user_index, 0)
                 else:
                     index += 1
             else:
@@ -250,6 +258,8 @@ class AgenteRL(gym.Env):
                     self.user_states[index] = 2
                     self.users_time[index] = 1
                     self.total_users_request += 1
+                    taks_weight = np.random.randint(1, self.max_weight_task)
+                    self.process_tasks[index] = taks_weight
                     
             elif user == 3: # Usuário se moveu
                 pass
@@ -361,19 +371,27 @@ class AgenteRL(gym.Env):
         energy_sobrevoo = 0
         min_distance = 100000
         index_min = -1
+        for i, t in enumerate(self.process_tasks):
+            if t > 0:
+                if self.user_states[i] == 3: self.process_tasks[i] = t-1
+        
         for i in range(len(self.users_positions)):
             current_distance = np.linalg.norm(self.posicao - self.users_positions[i])
 
             if self.user_states[i] == 3:  # Usuário aguardando
-                tempo_esperando = self.users_time[i]
-                if current_distance <= self.coverage_radius:
-                    reward += 30 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
-                    self.sum_accepts += 1
-                else:
-                    reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
-                    self.sum_rejects += 1
-                self.user_states[i] = 1
-                self.users_time[i] = 0
+                
+                if self.process_tasks[i] == 0:
+                    tempo_esperando = self.users_time[i]
+                    if current_distance <= self.coverage_radius:
+                        reward += 30 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
+                        self.sum_accepts += 1
+                    else:
+                        reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
+                        self.sum_rejects += 1
+                    self.user_states[i] = 1
+                    self.users_time[i] = 0
+                # else:
+                #     pass
 
             elif self.user_states[i] == 2:  # Usuário ativo
                 if current_distance < min_distance:
@@ -463,10 +481,11 @@ class AgenteRL(gym.Env):
         self.clientes_grid = np.zeros((self.grid_size, self.grid_size), dtype=int) #deveria gerar aleatóriamente a posição dos (tambem aleatoriamente quantidade de )usuários
         self.users_positions = []
         self.users_time = []
-        # self.user_states = [ ]
         
+        # self.user_states = [ ]
         random_clients_qty = np.random.randint(1, self.maxclients)
         self.user_states = np.zeros(random_clients_qty)
+        self.process_tasks = np.zeros(random_clients_qty)
         for i in range(random_clients_qty):
             #verificar se possui já um cliente ali
             
@@ -478,7 +497,9 @@ class AgenteRL(gym.Env):
             
         # definindo usuário inicial como estado 2
         user2 = np.random.randint(0, random_clients_qty)
+        taks_weight = np.random.randint(1, self.max_weight_task)
         self.user_states[user2] = 2
+        self.process_tasks[user2] = taks_weight
         num_max_clientes = 100
         self.previous_distances = np.zeros(num_max_clientes)
         self.index_min_previous = -1
@@ -502,7 +523,7 @@ class AgenteRL(gym.Env):
             elif state == 3:
                 # Define a cor com base na cobertura do drone
                 if np.linalg.norm(self.posicao - pos) <= self.coverage_radius:
-                    color = (0, 0, 255)  # Azul se dentro da área de cobertura
+                    color = (155, 155, 155)  # Cinza se dentro da área de cobertura
                 else:
                     color = (255, 0, 0)  # Vermelho se fora da área de cobertura
             else:

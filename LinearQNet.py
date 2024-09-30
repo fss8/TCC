@@ -179,7 +179,7 @@ class Agent:
         self.epsilon_decay = 0.9995
         self.gamma = 0.90 # discount rate
         self.memory = deque(maxlen=MAX_MEMORY) # popleft()
-        self.model = Linear_QNet(100, 300, 705, 120, qtd_movement, left_name_model)
+        self.model = Linear_QNet(100, 300, 805, 120, qtd_movement, left_name_model)
         self.trainer = QTrainer(self.model, lr=LR, gamma=self.gamma)
 
 
