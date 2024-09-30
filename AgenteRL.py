@@ -96,7 +96,7 @@ def consumo_joint(DroneF, DroneI, ListaDispositivos):
 GRID_SIZE = 100
 TOTAL_STATES = 4
 class AgenteRL(gym.Env):
-    def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=10):
+    def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=15):
         super(AgenteRL, self).__init__()
         
         self.coverage_radius = coverage_radius
