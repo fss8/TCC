@@ -93,7 +93,7 @@ def consumo_joint(DroneF, DroneI, ListaDispositivos):
     return Euav
 
 
-GRID_SIZE = 70
+GRID_SIZE = 100
 TOTAL_STATES = 4
 class AgenteRL(gym.Env):
     def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=10):

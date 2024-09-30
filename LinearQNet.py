@@ -16,15 +16,15 @@ import sys
 # # LAST_MODEL = 'remember_dist_-CNNLsTM5600_41_normalized_model' + str(versao) + '.pth'
 # PREVISION_LENGTH = 3
 class Linear_QNet(nn.Module):
-    def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, left_name_model, grid_size=70, num_layers=1):
+    def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, left_name_model, grid_size=100, num_layers=1):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 12, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(1, 12, kernel_size=3, stride=1, padding=2)
         self.conv2 = nn.Conv2d(12, 24, kernel_size=3, stride=1, padding=0)
         # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
         self.flatten = nn.Flatten()
         
-        self.flatten_size = 24*34*34
+        self.flatten_size = 24*50*50
         self.fc1 = nn.Linear(self.flatten_size, cnn_output_size)
         
         # LSTM layers

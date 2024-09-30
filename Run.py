@@ -17,7 +17,7 @@ from plot_helper import plot, initialize_graph
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 2120 # 500
+versao = 0 # 500
 QTD_MOVEMENT = 6
 LEFT_NAME = 'TCC-TASK-CNNLsTM5600_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
@@ -146,7 +146,7 @@ def train(plotar = False, continuar = False):
     
     if(plotar): screen = initialize_graph(game.grid_size)
     while True:
-        tm.sleep(0.1)
+        # tm.sleep(0.1)
         # get old state
         epsilon = agent.epsilon
         if plotar: game.render(screen, episode, total_reward, tempo, epsilon, confidence=confiancaaa)
