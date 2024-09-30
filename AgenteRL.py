@@ -105,6 +105,8 @@ class AgenteRL(gym.Env):
         self.maxclients = max_clients
         self.grid_size = grid_size
         
+        self.total_users_request=0
+        
         self.max_consecutive_positive_rewards = 400
         self.max_consecutive_negative = 700
         # self.action_space = spaces.Discrete(5)
@@ -205,7 +207,7 @@ class AgenteRL(gym.Env):
             
         conditions = self.consecutive_negative_rewards >= self.max_consecutive_negative or self.consecutive_positive_rewards >= self.max_consecutive_positive_rewards
         done = self.is_done(reward) or conditions
-        info = {"tempos": self.total_time_waiting, "qtdw": self.num_waiting , "accepts": self.sum_accepts, "rejects": self.sum_rejects}
+        info = {"tempos": self.total_time_waiting, "qtdw": self.num_waiting , "accepts": self.sum_accepts, "rejects": self.sum_rejects, "u_requests": self.total_users_request}
 
         self.state = self._get_state()
         return self.state, reward, done, {}, info
@@ -243,10 +245,11 @@ class AgenteRL(gym.Env):
         #Mudanças de estado
         for index, user in enumerate(self.user_states):
             if user == 1:
-                if np.random.rand() < 0.003:
+                if np.random.rand() < 0.002:
                     self.clientes_grid[self.users_positions[index][0]][self.users_positions[index][1]] = 2
                     self.user_states[index] = 2
                     self.users_time[index] = 1
+                    self.total_users_request += 1
                     
             elif user == 3: # Usuário se moveu
                 pass
@@ -408,11 +411,12 @@ class AgenteRL(gym.Env):
         
         if users_waiting > 0:reward += ( users_waiting / (users_waiting + n_pegou) ) * 3
         if index_min != -1 and index_min == self.index_min_previous:
-            distance_diff = self.previous_distances[index_min] - min_distance
-            if distance_diff > 0:
-                reward += 20  # Recompensa se a distância diminuiu
-            else:
-                reward -= 0.3  # Penalidade se a distância aumentou ou ficou igual     
+            if index_min <= 100:
+                distance_diff = self.previous_distances[index_min] - min_distance
+                if distance_diff > 0:
+                    reward += 20  # Recompensa se a distância diminuiu
+                else:
+                    reward -= 0.3  # Penalidade se a distância aumentou ou ficou igual     
         self.index_min_previous = index_min
 
         if energy_penalty == 0 and aguardando == n_pegou and aguardando > 0:
@@ -451,6 +455,8 @@ class AgenteRL(gym.Env):
         self.sum_rejects = 0
         self.total_time_waiting = 0
         self.num_waiting = 0
+        
+        self.total_users_request = 0
         
         # self.posicao = np.random.integers(0, self.grid_size, size=2, dtype=int)
         self.posicao = np.random.randint(0, self.grid_size, size=2)

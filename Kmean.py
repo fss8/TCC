@@ -1,8 +1,9 @@
 import numpy as np
 from sklearn.cluster import KMeans
+# from Run import definir_action
 import matplotlib.pyplot as plt
 
-def definir_action(drone_position, user_position):
+def definir_action_incorrect(drone_position, user_position):
     # Calcular distâncias
     dist_x = user_position[0] - drone_position[0]
     dist_y = user_position[1] - drone_position[1]
@@ -66,7 +67,8 @@ class Kmean:
     #     return np.array(movements)
 
     # Calcular a direção do movimento
-    def determine_next_action(self, drone_position, users_positions, user_states, n_clusters=3):
+    def determine_next_action(self, drone_position, users_positions, drone_speed, drone_direction, user_states, n_clusters=3):
+        from Run import definir_action
         relevant_users = [pos for i, pos in enumerate(users_positions) if user_states[i] in [2,3]]
         
         if len(relevant_users) == 0:
@@ -90,15 +92,17 @@ class Kmean:
         # if norm > 0:
         #     direction = direction / norm
         
-        acao, next_direction, drone_speed = definir_action(drone_position, closest_centroid)
+        acao = definir_action(drone_position, closest_centroid, drone_speed, drone_direction)
+        
+        
 
         # drone_speed = 1  # Definir a velocidade do drone
-        next_position = drone_position + direction * drone_speed
+        # next_position = drone_position + direction * drone_speed
 
-        next_position[0] = np.clip(next_position[0], 0, self.grid_size - 1)
-        next_position[1] = np.clip(next_position[1], 0, self.grid_size - 1)
+        # next_position[0] = np.clip(next_position[0], 0, self.grid_size - 1)
+        # next_position[1] = np.clip(next_position[1], 0, self.grid_size - 1)
 
-        return next_position, acao
+        return acao
     
     def density_based_clusters(self, users_positions, density_threshold=5):
         """

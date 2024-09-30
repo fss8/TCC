@@ -9,7 +9,7 @@ import time as tm
 import os
 import sys
 
-from AgenteRL import AgenteRL
+from AgenteRL import AgenteRL as AmbienteRL
 from LinearQNet import Agent
 from Kmean import Kmean
 from plot_helper import plot, initialize_graph
@@ -17,12 +17,12 @@ from plot_helper import plot, initialize_graph
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 40 # 500
+versao = 2120 # 500
 QTD_MOVEMENT = 6
 LEFT_NAME = 'mdpenalty-CNNLsTM5600_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
-PREVISION_LENGTH = 3
+PREVISION_LENGTH = 13
 
 def calcular_angulo(drone_position, user_position):
     dist_x = drone_position[0] - user_position[0]
@@ -124,7 +124,7 @@ def train(plotar = False, continuar = False):
     total_score = 0
     record = 0
     agent = Agent(QTD_MOVEMENT, LEFT_NAME)
-    game = AgenteRL()
+    game = AmbienteRL()
     
     if continuar == True:
         
@@ -168,9 +168,9 @@ def train(plotar = False, continuar = False):
         # agent.remember(state_old, final_move, reward, state_new, done)
         agent.epsilon *= agent.epsilon_decay
         
-        if tempo % 60 == 0:
+        if tempo % 80 == 0:
             sys.stdout.write('\r')
-            i = int(tempo/60)
+            i = int(tempo/80)
             # the exact output you're looking for:
             sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
             sys.stdout.flush()
@@ -178,10 +178,10 @@ def train(plotar = False, continuar = False):
         tempo += 1
         total_reward += reward
 
-        if done or tempo > 1200:
+        if done or tempo > 1600:
 
             print("Done:" , done)
-            if episode < 80 : decay_epsilon += 1
+            if episode < 160 : decay_epsilon += 1
             # train long memory, plot result
             game.reset()
             episode += 1
@@ -223,9 +223,10 @@ def print_scores(decay_epsilon, score, sum_of_rewards, plot_scores, plot_mean_sc
             
 
     
-def simulate_next_positions(agent ,game, action, next_position):
+def simulate_next_positions(agent ,game, action):
+    # print(action)
     
-    game_copy = AgenteRL()
+    game_copy = AmbienteRL()
     return_positions = []
     # game_copy
     game_copy.battery = game.battery
@@ -241,30 +242,39 @@ def simulate_next_positions(agent ,game, action, next_position):
     game_copy.clientes_grid = game.clientes_grid.copy()
     game_copy.users_positions = game.users_positions.copy()
     game_copy.users_time = game.users_time.copy()
+    game_copy.direction = game.direction
     # self.user_states = [ ]
     
     game_copy.user_states = game.user_states.copy()
+    acao = action
     # game_copy.
     for i in range(PREVISION_LENGTH):
         game_copy.undeterministic_random_movement()
             
-        acao, penalty, pos_penalty = game_copy.take_action(action)
+        posicao2, penalty, pos_penalty = game_copy.take_action(acao)
+        # game_copy.state = game_copy._get_state()
         
-        # for i in range(0,)
-        prev_pos = game_copy.posicao.copy()
+        # print(posicao2)
+        
+        # # for i in range(0,)
+        # prev_pos = game_copy.posicao
         state_old = agent.get_state(game_copy)
         final_move, confidence = agent.get_action(state_old, test=True)
-        movement = np.argmax(final_move)
-
-        next_position, _ = game_copy.get_next_position(prev_pos, movement)
+        acao = np.argmax(final_move)
+        
+        # # game_copy.step(movement)
+        # next_position, _ = game_copy.get_next_position(prev_pos, movement)
+        
+        # print(next_position)
         # list_positions[1] = next_position
         # print(movement)
         # if np.all(position == next_position): print('ENGUALL')
-        return_positions.append(next_position)
-        # print(return_positions)
+        return_positions.append(posicao2)
+    # print(return_positions)
     return return_positions
 
-def test():
+def test(use_kmeans = False):
+    kmean = Kmean()
     plot_scores = []
     plot_mean_scores = []
     total_score = 0
@@ -276,7 +286,7 @@ def test():
     agent = Agent(QTD_MOVEMENT, LEFT_NAME)
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     agent.model.load_state_dict(torch.load(model_path, map_location=device))
-    game = AgenteRL()
+    game = AmbienteRL()
     
     episode = 0
     tempo = 0
@@ -307,28 +317,34 @@ def test():
         
         
         # ======================== TESTE MOVIMENTO ==========================#
-        if confidence < 0.5:
-            drone_pos, user_pos = game.get_positions()
-            movement = definir_action(drone_pos, user_pos, game.speed, game.direction)
+        if confidence < 0.1860 :
+            if use_kmeans == True:
+                drone_pos, user_pos, user_states = game.get_informations()
+                movement = kmean.determine_next_action(drone_pos, user_pos, game.speed, game.direction, user_states)
+            else:
+                drone_pos, user_pos = game.get_positions()
+                movement = definir_action(drone_pos, user_pos, game.speed, game.direction)
         else:
             # print(movement)
             pass
             
             
             
-        # list_positions[0] = game.posicao
+        
+        list_positions[0] = game.posicao.copy()
         # list_positions.append(game.posicao)
-        # next_position = game.get_next_position(game.posicao, movement)
-        # # list_positions[1] = next_position
+        # next_position, _ = game.get_next_position(game.posicao, movement)
+        # list_positions[1] = next_position
         
-        # new_list_positions = simulate_next_positions(agent, game, movement, next_position)
-        # for i, v in enumerate(new_list_positions):
-        #     # print('index', i, v)
-        #     list_positions[i+1] = v
+        new_list_positions = simulate_next_positions(agent, game, movement)
+        for i, v in enumerate(new_list_positions):
+            # print('index', i, v)
+            list_positions[i+1] = v
         
+        # print(new_list_positions)
         #=================================================================================//
 
-        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=[])
+        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=list_positions)
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
         score = reward
@@ -339,9 +355,16 @@ def test():
         # if reward > 100: print(reward, " - ", total_reward)
         # train short memory
         # agent.train_short_memory(state_old, final_move, reward, state_new, done)
+        
 
-        if done:
+        if done or tempo >= 1000:
             # train long memory, plot result
+            
+            if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
+            else: media_tempo = 0
+
+
+            print("Media TEMPO: ", media_tempo ,info)
             episode += 1
             tempo = 0
             game.reset()
@@ -354,7 +377,7 @@ def test():
 def test_with_kmean():
     kmean = Kmean()
     
-    game = AgenteRL()
+    game = AmbienteRL()
     game.reset()
     
     episode = 0
@@ -365,7 +388,7 @@ def test_with_kmean():
     
     screen = initialize_graph(game.grid_size)
     while True:
-        tm.sleep(0.2)
+        # tm.sleep(0.2)
         drone_pos, user_pos, user_states = game.get_informations()
         # print(drone_pos, user_pos, user_states)
         # contains_two = np.any(user_states == 2)
@@ -373,7 +396,7 @@ def test_with_kmean():
         #     n_clusters = max()
         #     movement = kmean.determine_next_action(drone_pos, user_pos, user_states)
         # else: movement = 40
-        _, movement = kmean.determine_next_action(drone_pos, user_pos, user_states)
+        movement = kmean.determine_next_action(drone_pos, user_pos, game.speed, game.direction, user_states)
         # print(movement)
         
         game.render(screen, episode, total_reward, tempo, epsilon=-2, confidence = 2)
@@ -408,5 +431,9 @@ if __name__ == '__main__':
         sys.stdout.flush()
         tm.sleep(0.05)
     # train(continuar = True)
-    test()
+    
+    if sys.argv[3] == 'k':
+        test(use_kmeans=True)
+    else:
+        test()
     # test_with_kmean()
