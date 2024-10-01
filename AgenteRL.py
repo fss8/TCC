@@ -95,6 +95,7 @@ def consumo_joint(DroneF, DroneI, ListaDispositivos):
 
 GRID_SIZE = 100
 TOTAL_STATES = 4
+MAX_RESPONSE_DELAY = 20
 class AgenteRL(gym.Env):
     def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=15):
         super(AgenteRL, self).__init__()
@@ -229,6 +230,7 @@ class AgenteRL(gym.Env):
             new_user_position = pos.tolist()
             self.users_positions.append(new_user_position)
             self.users_time.append(0)
+            self.response_time.append(0)
             self.user_states = np.append(self.user_states, 1)  # 1 para usuário novo
             self.process_tasks = np.append(self.process_tasks, 1)
             self.clientes_grid[new_user_position[0]][new_user_position[1]] = 1
@@ -242,6 +244,7 @@ class AgenteRL(gym.Env):
                     self.clientes_grid[self.users_positions[user_index][0]][self.users_positions[user_index][1]] = 0
                     self.users_positions.pop(user_index)
                     self.users_time.pop(user_index)
+                    self.response_time.pop(user_index)
                     self.user_states = np.delete(self.user_states,user_index, 0)
                     self.process_tasks = np.delete(self.process_tasks, user_index, 0)
                 else:
@@ -372,8 +375,11 @@ class AgenteRL(gym.Env):
         min_distance = 100000
         index_min = -1
         for i, t in enumerate(self.process_tasks):
-            if t > 0:
-                if self.user_states[i] == 3: self.process_tasks[i] = t-1
+            if self.user_states[i] == 3:
+                if t > 0:
+                    self.process_tasks[i] = t-1
+                if t == 0:
+                    self.response_time[i] += 1
         
         for i in range(len(self.users_positions)):
             current_distance = np.linalg.norm(self.posicao - self.users_positions[i])
@@ -385,11 +391,17 @@ class AgenteRL(gym.Env):
                     if current_distance <= self.coverage_radius:
                         reward += 30 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
                         self.sum_accepts += 1
-                    else:
+                        self.user_states[i] = 1
+                        self.users_time[i] = 0
+                        self.response_time[i] = 0
+                        
+                    elif self.response_time[i] == MAX_RESPONSE_DELAY:
                         reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
                         self.sum_rejects += 1
-                    self.user_states[i] = 1
-                    self.users_time[i] = 0
+                        self.user_states[i] = 1
+                        self.users_time[i] = 0
+                        self.response_time[i] = 0
+                    
                 # else:
                 #     pass
 
@@ -481,6 +493,7 @@ class AgenteRL(gym.Env):
         self.clientes_grid = np.zeros((self.grid_size, self.grid_size), dtype=int) #deveria gerar aleatóriamente a posição dos (tambem aleatoriamente quantidade de )usuários
         self.users_positions = []
         self.users_time = []
+        self.response_time = []
         
         # self.user_states = [ ]
         random_clients_qty = np.random.randint(1, self.maxclients)
@@ -493,6 +506,7 @@ class AgenteRL(gym.Env):
             self.clientes_grid[user_position[0]][user_position[1]] = 1
             self.user_states[i] = 1
             self.users_time.append(0)
+            self.response_time.append(0)
             self.users_positions.append(user_position)
             
         # definindo usuário inicial como estado 2

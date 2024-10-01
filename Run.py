@@ -19,7 +19,7 @@ print(device)
 
 versao = 0 # 500
 QTD_MOVEMENT = 6
-LEFT_NAME = 'TCC-TASK-CNNLsTM5600_6_normalized_model'
+LEFT_NAME = 'TCC-TASK-REPONSE-CNNLsTM_6_normalized_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 13
@@ -243,7 +243,9 @@ def simulate_next_positions(agent ,game, action):
     game_copy.clientes_grid = game.clientes_grid.copy()
     game_copy.users_positions = game.users_positions.copy()
     game_copy.users_time = game.users_time.copy()
+    game_copy.response_time = game.response_time.copy()
     game_copy.direction = game.direction
+    game_copy.process_tasks = game.process_tasks.copy()
     # self.user_states = [ ]
     
     game_copy.user_states = game.user_states.copy()
