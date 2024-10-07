@@ -18,10 +18,12 @@ import sys
 class Linear_QNet(nn.Module):
     def __init__(self, rnn_hidden_size, cnn_output_size, system_state_size,  intermediate_linear, output_size, left_name_model, grid_size=100, num_layers=1):
         super().__init__()
+        
+        self.last_layer = 60
         self.conv1 = nn.Conv2d(1, 5, kernel_size=3, stride=1, padding=2)
         self.conv2 = nn.Conv2d(5, 10, kernel_size=3, stride=1, padding=0)
         # self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.pool = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
         self.flatten = nn.Flatten()
         
         self.flatten_size = 10*50*50
@@ -30,7 +32,8 @@ class Linear_QNet(nn.Module):
         # LSTM layers
         self.lstm = nn.LSTM(input_size=cnn_output_size + system_state_size, hidden_size=rnn_hidden_size, num_layers=num_layers, batch_first=True)
         self.fc_instermediate = nn.Linear(rnn_hidden_size, intermediate_linear)
-        self.fc_out = nn.Linear(intermediate_linear, output_size)
+        self.fc_new_layers_output = nn.Linear(intermediate_linear, self.last_layer)
+        self.fc_out = nn.Linear(self.last_layer, output_size)
         
         # CONFIG
         self.left_name = left_name_model
@@ -62,6 +65,8 @@ class Linear_QNet(nn.Module):
         lstm_out, hidden = self.lstm(x_combined.unsqueeze(1), hidden)
         # print(lstm_out)
         out = self.fc_instermediate(lstm_out[:, -1, :])
+        out = F.relu(out)
+        out = F.relu(self.fc_new_layers_output(out))
         out = self.fc_out(out)
 
         return out, hidden

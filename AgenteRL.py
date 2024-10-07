@@ -8,6 +8,7 @@ import math
 from math import log2
 
 import time
+from collections import deque
 
 
 
@@ -38,7 +39,7 @@ def energia_sobrevoo(DroneI, DispositivoP):
     
     
     Ph = 0.08 # Potencia de sobrevoo
-    Dm = 50_000_000 # Numero de bits para computação da tarefa
+    Dm = 10_000_000 # Numero de bits para computação da tarefa
     Cm = 1000 # Número de ciclos de CPU, para computação da tarefa de 1-bit
 
     # ------ calculo  - para uma tarefa? ou para ficar parado
@@ -46,12 +47,12 @@ def energia_sobrevoo(DroneI, DispositivoP):
     # Fm_real_ = 2_000_000_000 # Clico de cpu real
     # Fm_desvio = Fm_DT - Fm_real_  # desvio da frequência de CPU entre o seu valor real e o armazenado em DT (atualmente sendo 0)
 
-    B = 100_000_000 # Banda do sistema
+    B = 20_000_000 # Banda do sistema
     o2 = 1*(10**-9) # Ruido aditivo Gaussiano branco de potência
     p = 0.1 # Potencia de transmissão do usuário
 
     B0 = 1 # ganho de potencia em referencia a distancia de um(1) metro
-    distancia_user_modulo_elev_quad = (Ux - Xi)**2 + (Uy - Yi)**2 # distancia até o usuário ||distancia||  elevado ao quadrado
+    distancia_user_modulo_elev_quad = (Ux - Xi)**2 + (Uy - Yi)**2 + (15)**2 # distancia até o usuário ||distancia||  elevado ao quadrado
     if distancia_user_modulo_elev_quad == 0: distancia_user_modulo_elev_quad = 1
     h = B0/(distancia_user_modulo_elev_quad) # ganho de potencia do canal na LoS(linha de visão)
     RmjUAV = B*log2(1+((p*h)/o2)) # taxa de transmissão do usuario para o drone (ou do drone para o usuario?)
@@ -93,16 +94,81 @@ def consumo_joint(DroneF, DroneI, ListaDispositivos):
     return Euav
 
 
+class Pacote:
+    def __init__(self, id_pacote, tamanho):
+        self.id_pacote = id_pacote
+        self.tamanho = tamanho  # Número de slots que o pacote precisa para ser processado
+    
+    def processar(self):
+        if self.tamanho > 0:
+            self.tamanho -= 1  # Processa 1 slot do pacote
+    
+    def esta_completo(self):
+        return self.tamanho == 0
+    
+    def id(self):
+        return self.id_pacote
+
+class FilaDeProcessamento:
+    def __init__(self, max_pacotes_processados=5):
+        self.pacotes = deque()
+        self.max_pacotes_processados = max_pacotes_processados
+    
+    def adicionar_pacote(self, pacote):
+        """ Adiciona um novo pacote à fila """
+        self.pacotes.append(pacote)
+        # print(f"Pacote {pacote.id_pacote} com {pacote.tamanho} slots adicionado à fila.")
+    
+    def processar_pacotes(self):
+        process_task_users = []
+        complete_task_users = []
+        """ Processa os pacotes na fila com o limite de pacotes simultâneos """
+        final = False
+        pacotes_processados = 0
+        while self.pacotes:
+            for pacote in self.pacotes.copy():  # Itera sobre uma cópia para evitar erro de modificação
+                if pacotes_processados >= self.max_pacotes_processados:
+                    final = True
+                    break  # Limita o número de pacotes processados por iteração
+                pacote.processar()
+                pacotes_processados += 1
+                process_task_users.append(pacote.id())
+                if pacote.esta_completo():
+                    # print(f"Pacote {pacote.id_pacote} completo e removido da fila.")
+                    complete_task_users.append(pacote.id())
+                    self.pacotes.remove(pacote)  # Remove pacotes completos da fila
+            if final: break
+            
+            # print(f"Após uma iteração, a fila tem {len(self.pacotes)} pacotes restantes.")
+        return process_task_users, complete_task_users
+    
+    def remover_pacote(self, id_pacote):
+        """ Remove um pacote específico pelo id """
+        for pacote in self.pacotes:
+            if pacote.id_pacote == id_pacote:
+                self.pacotes.remove(pacote)
+                # print(f"Pacote {id_pacote} removido da fila.")
+                return
+        # print(f"Pacote {id_pacote} não encontrado na fila.")
+        
+    def ajustar_ids_pacotes(self, indice_removido):
+        """ Ajusta os IDs dos pacotes após remoção de elemento no array original """
+        for pacote in self.pacotes:
+            if pacote.id_pacote > indice_removido:
+                pacote.id_pacote -= 1
+        # print(f"IDs dos pacotes ajustados após remoção do elemento no índice {indice_removido}.")
+        
+
 GRID_SIZE = 100
 TOTAL_STATES = 4
-MAX_RESPONSE_DELAY = 20
+MAX_RESPONSE_DELAY = 6
 class AgenteRL(gym.Env):
     def __init__(self, max_clients = 25, grid_size = GRID_SIZE, coverage_radius=15):
         super(AgenteRL, self).__init__()
         
         self.coverage_radius = coverage_radius
-        self.new_user_prob = 0.12
-        self.user_disappearance_prob = 0.04
+        self.new_user_prob = 0.04
+        self.user_disappearance_prob = 0.004
         self.maxclients = max_clients
         self.grid_size = grid_size
         
@@ -118,7 +184,7 @@ class AgenteRL(gym.Env):
         
         self.num_max_clientes = 100
         self.num_status = 8
-        self.max_weight_task = 10
+        self.max_weight_task = 25
         self.state_system = np.zeros(5 + self.num_max_clientes * self.num_status)
         # spaces.Box(low=0, high=1, shape=(10, 10, 3), dtype=np.float32)  #Imagem com 3 cores rgb(transformar em uma matriz com 0 ou 1, contendo as posições q possuem
         
@@ -146,6 +212,7 @@ class AgenteRL(gym.Env):
 
         index = 0
         start_idx = 5
+        status_number = self.num_status
         for i, u in enumerate(self.user_states):
             if u in [2, 3]:  # Considera os estados 2 e 3
                 # Cálculo da distância e direção
@@ -162,17 +229,18 @@ class AgenteRL(gym.Env):
                     task_weight = self.process_tasks[i]/self.max_weight_task
                 else:
                     task_weight = 0
-                
-                self.state_system[start_idx:start_idx + self.num_status] = [
-                    self.users_positions[i][1] / self.grid_size,  # Normaliza a posição x do usuário
-                    self.users_positions[i][0] / self.grid_size,  # Normaliza a posição y do usuário
-                    norm_distance,
-                    norm_direction_x,
-                    norm_direction_y,
-                    u / TOTAL_STATES,  # Estado do usuário (2 ou 3)
-                    norm_time,
-                    task_weight
-                ]
+                # if start_idx + self.num_status > start_idx:
+                if(len(self.state_system[start_idx:start_idx + status_number])>0):
+                    self.state_system[start_idx:start_idx + status_number] = [
+                        self.users_positions[i][1] / self.grid_size,  # Normaliza a posição x do usuário
+                        self.users_positions[i][0] / self.grid_size,  # Normaliza a posição y do usuário
+                        norm_distance,
+                        norm_direction_x,
+                        norm_direction_y,
+                        u / TOTAL_STATES,  # Estado do usuário (2 ou 3)
+                        norm_time,
+                        task_weight
+                    ]
                 index += 1
                 start_idx = 5 + index * self.num_status
 
@@ -199,7 +267,7 @@ class AgenteRL(gym.Env):
         
         acao, penalty, pos_penalty = self.take_action(action)
 
-        reward, total_time, reqs, u_waiting = self.get_reward(penalty, pos_penalty)
+        reward, ep, es, usp = self.get_reward(penalty, pos_penalty)
 
         # self.observation, info = self.get_observation()  #ambiente deveria mudar
 
@@ -212,9 +280,23 @@ class AgenteRL(gym.Env):
         #     self.consecutive_positive_rewards = 0
         #     self.consecutive_negative_rewards += 1
             
-        conditions = self.consecutive_negative_rewards >= self.max_consecutive_negative or self.consecutive_positive_rewards >= self.max_consecutive_positive_rewards
-        done = self.is_done(reward) or conditions
-        info = {"tempos": self.total_time_waiting, "qtdw": self.num_waiting , "accepts": self.sum_accepts, "rejects": self.sum_rejects, "u_requests": self.total_users_request}
+        # conditions = self.consecutive_negative_rewards >= self.max_consecutive_negative or self.consecutive_positive_rewards >= self.max_consecutive_positive_rewards
+        done = self.is_done(reward)
+        
+        total_users = len(self.user_states)
+        # RECOMPENSA | REQs atendidas | tempo_u2_aguardando | U2 | U3 | energiatotal | energia process/transferencia | usuarios processando | usuarios_energia | total_usuarios
+        # status_values = [reward, total_time, reqs, u2, u3, ep, es, usp, reqs+usp, total_users ]
+        # self.status.append(status_values)
+        self.total_energia_consumida += ep
+        self.energia_transferida += es
+        self.total_solicited_process += usp
+        
+        info = {"tempos": self.total_time_waiting, "qtdw": self.num_waiting, "accepts": self.sum_accepts, "rejects": self.sum_rejects, "u_requests": self.total_users_request, 
+                "time_proc": self.total_time_processing, "users_process": self.num_wait_processing,
+                "energia_voo": self.total_energia_consumida, "energia_process": self.energia_transferida, "users_processando": self.total_solicited_process, 
+                "total_users": total_users, "reward": reward
+                }
+        # info = {}
 
         self.state = self._get_state()
         return self.state, reward, done, {}, info
@@ -238,7 +320,7 @@ class AgenteRL(gym.Env):
         index = 0
         while index < self.user_states.shape[0]:
             if self.user_states[index] == 1:
-                if np.random.rand() < self.user_disappearance_prob/10:
+                if np.random.rand() < self.user_disappearance_prob:
                     user_index = index
                     
                     self.clientes_grid[self.users_positions[user_index][0]][self.users_positions[user_index][1]] = 0
@@ -247,6 +329,7 @@ class AgenteRL(gym.Env):
                     self.response_time.pop(user_index)
                     self.user_states = np.delete(self.user_states,user_index, 0)
                     self.process_tasks = np.delete(self.process_tasks, user_index, 0)
+                    self.fila.ajustar_ids_pacotes(user_index)
                 else:
                     index += 1
             else:
@@ -256,7 +339,7 @@ class AgenteRL(gym.Env):
         #Mudanças de estado
         for index, user in enumerate(self.user_states):
             if user == 1:
-                if np.random.rand() < 0.002:
+                if np.random.rand() < 0.015:
                     self.clientes_grid[self.users_positions[index][0]][self.users_positions[index][1]] = 2
                     self.user_states[index] = 2
                     self.users_time[index] = 1
@@ -374,41 +457,69 @@ class AgenteRL(gym.Env):
         energy_sobrevoo = 0
         min_distance = 100000
         index_min = -1
-        for i, t in enumerate(self.process_tasks):
-            if self.user_states[i] == 3:
-                if t > 0:
-                    self.process_tasks[i] = t-1
-                if t == 0:
-                    self.response_time[i] += 1
+        
+        #processamento
+        total_processed_users = 0
+        total_time_processed = 0
+        users_state_2 = 0
+        users_state_3 = 0
+        
+        qtd_users = len(self.users_positions)
+        pacotes_processados, pacotes_completados = self.fila.processar_pacotes()
+        # print(pacotes_processados)
+        for p in pacotes_processados:
+            cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[p])
+            energy_sobrevoo += cost_voo
+            self.battery -= cost_voo / 5
+            # if self.user_states[v] == 3:
+            
+            self.process_tasks[p] -= 1
+            
+        qtd_users_processing = len(np.unique(pacotes_processados))
+
         
         for i in range(len(self.users_positions)):
+            user_state = self.user_states[i]
             current_distance = np.linalg.norm(self.posicao - self.users_positions[i])
 
-            if self.user_states[i] == 3:  # Usuário aguardando
+            if user_state == 3:  # Usuário aguardando
                 
-                if self.process_tasks[i] == 0:
-                    tempo_esperando = self.users_time[i]
-                    if current_distance <= self.coverage_radius:
-                        reward += 30 - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
-                        self.sum_accepts += 1
-                        self.user_states[i] = 1
-                        self.users_time[i] = 0
-                        self.response_time[i] = 0
-                        
-                    elif self.response_time[i] == MAX_RESPONSE_DELAY:
-                        reward -= 3.5 + (tempo_esperando * 0.05)  # Penalidade maior por rejeição com tempo de espera
-                        self.sum_rejects += 1
-                        self.user_states[i] = 1
-                        self.users_time[i] = 0
-                        self.response_time[i] = 0
+                users_state_3 += 1
+                # time_process = self.process_tasks[i]
+                # if time_process > 0:
+                #     self.process_tasks[i] = time_process-1
+                # if time_process == 0:
+                self.response_time[i] += 1
+                tempo_esperando = self.users_time[i]
+                tempo_processando = self.response_time[i]
+                
+                if tempo_processando >= MAX_RESPONSE_DELAY:
+                    reward -= (25 + (tempo_esperando * 0.05))/qtd_users  # Penalidade maior por rejeição com tempo de espera
+                    self.sum_rejects += 1
+                    self.user_states[i] = 1
+                    self.users_time[i] = 0
+                    self.response_time[i] = 0
+                    self.fila.remover_pacote(i)
+                
+                elif self.process_tasks[i] == 0:
+                    # print(self.response_time[i])
+                    # tempo_esperando = self.users_time[i]
+                    # if current_distance <= self.coverage_radius:
+                    total_time_processed += tempo_processando
+                    total_processed_users += 1
+                    
+                    reward += (45) - (tempo_esperando * 0.1)  # Recompensa maior por menor tempo de espera
+                    self.sum_accepts += 1
+                    self.user_states[i] = 1
+                    self.users_time[i] = 0
+                    self.response_time[i] = 0
                     
                 # else:
                 #     pass
 
-            elif self.user_states[i] == 2:  # Usuário ativo
-                if current_distance < min_distance:
-                    index_min = i
-                    min_distance = current_distance
+            elif user_state == 2:  # Usuário ativo
+                
+                users_state_2 += 1
                 aguardando += 1
                 if current_distance <= self.coverage_radius:
                     self.user_states[i] = 3
@@ -417,23 +528,22 @@ class AgenteRL(gym.Env):
                     qty += 1
                     reward += 15 - (self.users_time[i] * 0.001)  # Recompensa maior por tempo de espera reduzido
 
-                    cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
-                    energy_sobrevoo += cost_voo
-                    self.battery -= cost_voo / 20
+                    # cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
+                    # energy_sobrevoo += cost_voo
+                    # self.battery -= cost_voo / 20
+                    self.fila.adicionar_pacote(Pacote(i, self.process_tasks[i]))
                 else:
                     n_pegou += 1
                     self.users_time[i] += 1
+                    
+                    # reward -= 5/qtd_users
                     # reward -= self.users_time[i] * 0.005  # Penalidade por tempo de espera
                     # reward -= self.users_time[i] / 5000 
                     
-            
+            if user_state in [2,3] and current_distance < min_distance:
+                index_min = i
+                min_distance = current_distance
 
-            # # Comparar a distância atual com a anterior
-            # distance_diff = self.previous_distances[i] - current_distance
-            # if distance_diff > 0:
-            #     reward += 2  # Recompensa se a distância diminuiu
-            # else:
-            #     reward -= 5  # Penalidade se a distância aumentou ou ficou igual
 
             # Atualiza a distância anterior
             if i < 100: self.previous_distances[i] = current_distance
@@ -441,7 +551,7 @@ class AgenteRL(gym.Env):
         
         if users_waiting > 0:reward += ( users_waiting / (users_waiting + n_pegou) ) * 3
         if index_min != -1 and index_min == self.index_min_previous:
-            if index_min <= 100:
+            if index_min < 100:
                 distance_diff = self.previous_distances[index_min] - min_distance
                 if distance_diff > 0:
                     reward += 20  # Recompensa se a distância diminuiu
@@ -462,7 +572,9 @@ class AgenteRL(gym.Env):
         # reward = reward - (users_waiting)
         self.total_time_waiting += sum_time
         self.num_waiting += users_waiting
-        return reward, sum_time, qty, users_waiting
+        self.total_time_processing += total_time_processed
+        self.num_wait_processing += total_processed_users
+        return reward, energy_penalty, energy_sobrevoo, qtd_users_processing #,  sum_time, qty, users_waiting,, users_state_2, users_state_3
     
     # def get_observation(self):
     #     return self.observation, {}
@@ -485,8 +597,15 @@ class AgenteRL(gym.Env):
         self.sum_rejects = 0
         self.total_time_waiting = 0
         self.num_waiting = 0
+        self.total_time_processing = 0
+        self.num_wait_processing = 0
         
+        self.total_energia_consumida = 0
+        self.energia_transferida = 0
+        self.total_solicited_process = 0
         self.total_users_request = 0
+        
+        self.status = []
         
         # self.posicao = np.random.integers(0, self.grid_size, size=2, dtype=int)
         self.posicao = np.random.randint(0, self.grid_size, size=2)
@@ -496,7 +615,7 @@ class AgenteRL(gym.Env):
         self.response_time = []
         
         # self.user_states = [ ]
-        random_clients_qty = np.random.randint(1, self.maxclients)
+        random_clients_qty = np.random.randint((self.maxclients)-1, (self.maxclients))
         self.user_states = np.zeros(random_clients_qty)
         self.process_tasks = np.zeros(random_clients_qty)
         for i in range(random_clients_qty):
@@ -519,6 +638,7 @@ class AgenteRL(gym.Env):
         self.index_min_previous = -1
             
         self.state = self._get_state()
+        self.fila = FilaDeProcessamento(max_pacotes_processados=5)
         return self.state
     
     def render(self, screen, episode, total_reward, step, epsilon, confidence = 1.0, list_positions = None):

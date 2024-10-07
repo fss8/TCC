@@ -14,12 +14,37 @@ from LinearQNet import Agent
 from Kmean import Kmean
 from plot_helper import plot, initialize_graph
 
+import json
+
+# Função para salvar o checkpoint em um arquivo JSON
+def carregar_checkpoints(nome_arquivo):
+    if os.path.exists(nome_arquivo):
+        with open(nome_arquivo, 'r') as f:
+            return json.load(f)
+    else:
+        return []  # Se não existir, inicializa com uma lista vazia
+
+# Função para salvar os checkpoints no arquivo
+def salvar_checkpoint(estado, nome_arquivo):
+    # Carregar os checkpoints existentes
+    checkpoints = carregar_checkpoints(nome_arquivo)
+    
+    # Adiciona o novo checkpoint à lista
+    checkpoints.append(estado)
+    
+    # Salva novamente no arquivo
+    with open(nome_arquivo, 'w') as f:
+        json.dump(checkpoints, f, indent=4)
+    
+    print(f"Checkpoint salvo no arquivo {nome_arquivo}")
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-versao = 0 # 500
+versao_melhor = 1180
+versao = 1260 # 500
 QTD_MOVEMENT = 6
-LEFT_NAME = 'TCC-TASK-REPONSE-CNNLsTM_6_normalized_model'
+LEFT_NAME = 'TCC-TASK-REPONSE-CNNLsTM_6_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
 
 PREVISION_LENGTH = 13
@@ -145,75 +170,102 @@ def train(plotar = False, continuar = False):
     confiancaaa = -1
     
     if(plotar): screen = initialize_graph(game.grid_size)
-    while True:
-        # tm.sleep(0.1)
-        # get old state
-        epsilon = agent.epsilon
-        if plotar: game.render(screen, episode, total_reward, tempo, epsilon, confidence=confiancaaa)
-        state_old = agent.get_state(game)
+    try:
+        while True:
+            # tm.sleep(0.1)
+            # get old state
+            epsilon = agent.epsilon
+            if plotar: game.render(screen, episode, total_reward, tempo, epsilon, confidence=confiancaaa)
+            state_old = agent.get_state(game)
 
-        # get move
-        final_move, confiancaaa = agent.get_action(state_old, test=False)
-        movement = np.argmax(final_move)
+            # get move
+            final_move, confiancaaa = agent.get_action(state_old, test=False)
+            movement = np.argmax(final_move)
 
-        # perform move and get new state
-        _, reward, done, score, info = game.step(movement)
-        # total_time = info['tempos']
-        score = reward
-        state_new = agent.get_state(game)
+            # perform move and get new state
+            _, reward, done, score, info = game.step(movement)
+            # total_time = info['tempos']
+            score = reward
+            state_new = agent.get_state(game)
 
-        # //// ======== ========== TRAINING short MEMORY =========== ======== \\\\\
-        # train short memory
-        agent.train_short_memory(state_old, final_move, reward, state_new, done)
-        # remember
-        # agent.remember(state_old, final_move, reward, state_new, done)
-        agent.epsilon *= agent.epsilon_decay
-        
-        if tempo % 80 == 0:
-            sys.stdout.write('\r')
-            i = int(tempo/80)
-            # the exact output you're looking for:
-            sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
-            sys.stdout.flush()
-        
-        tempo += 1
-        total_reward += reward
-
-        if done or tempo > 1600:
-
-            print("Done:" , done)
-            if episode < 160 : decay_epsilon += 1
-            # train long memory, plot result
-            game.reset()
-            episode += 1
-            tempo = 0
-            agent.n_games += 1
+            # //// ======== ========== TRAINING short MEMORY =========== ======== \\\\\
+            # train short memory
+            agent.train_short_memory(state_old, final_move, reward, state_new, done)
+            # remember
+            agent.remember(state_old, final_move, reward, state_new, done)
+            agent.epsilon *= agent.epsilon_decay
             
-            # agent.train_long_memory()
-
-            if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
-            else: media_tempo = 0
-
-            if media_tempo > record:
-                record = media_tempo
-            #     agent.model.save()
-
-            print("Media TEMPO: ", media_tempo ,info)
-            print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
+            if tempo % 50 == 0:
+                sys.stdout.write('\r')
+                i = int(tempo/50)
+                # the exact output you're looking for:
+                sys.stdout.write("[%-20s] %d%%" % ('='*i, 5*i))
+                sys.stdout.flush()
             
-            total_score += total_reward
-            agent.epsilon = 0.9-(decay_epsilon / 200)
-            #print_scores(decay_epsilon, total_reward, total_score, plot_scores, plot_mean_scores, agent.n_games)
-            total_reward = 0
-            if(episode % 20 == 0): 
-                print("SAVING MODEL")
+            tempo += 1
+            total_reward += reward
+
+            if done or tempo > 1000:
+
+                print("Done:" , done)
+                if episode < 160 : decay_epsilon += 1
+                # train long memory, plot result
                 
-                # decay_epsilon = 0
-                versao_modelo = episode + versao
-                agent.model.save(file_name=str(versao_modelo) + '.pth')
-            if episode == 1600: break
-            
-    if plotar: pygame.quit()
+                if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
+                else: media_tempo = 0
+                
+                media_processing = 0
+                if info['users_process'] > 0: media_processing = info['time_proc']/info['users_process']
+
+                if media_tempo > record:
+                    record = media_tempo
+                #     agent.model.save()
+                
+                estado = {
+                    "epoch": agent.n_games + versao + 1,
+                    "modelo": LEFT_NAME,
+                    "total_rw": total_reward,
+                    "media_tempo": media_tempo,
+                    "media_process": media_processing,
+                    "info": info,
+                    # "model_status": game.status  # Exemplificação de pesos de um modelo
+                }
+
+                # Salva o checkpoint após a iteração 10
+                salvar_checkpoint(estado, 'checkpoint_10.json')
+
+                print("Media TEMPO: ", media_tempo ,info)
+                agent.n_games += 1
+                print('Game', agent.n_games, 'Score', score, 'Total RW:', total_reward, 'Record:', record)
+                
+                
+                
+                game.reset()
+                episode += 1
+                tempo = 0
+                
+                
+                agent.train_long_memory()
+
+                
+                
+                total_score += total_reward
+                agent.epsilon = 0.9-(decay_epsilon / 200)
+                #print_scores(decay_epsilon, total_reward, total_score, plot_scores, plot_mean_scores, agent.n_games)
+                total_reward = 0
+                if(episode % 20 == 0): 
+                    print("SAVING MODEL")
+                    
+                    # decay_epsilon = 0
+                    versao_modelo = episode + versao
+                    agent.model.save(file_name=str(versao_modelo) + '.pth')
+                # if episode == 1600: break
+                
+        if plotar: pygame.quit()
+    except Exception as e:
+        print(f"Erro encontrado: {e}")
+        import traceback
+        traceback.print_exc()
     
 def print_scores(decay_epsilon, score, sum_of_rewards, plot_scores, plot_mean_scores, n_games):
     print(decay_epsilon)
@@ -276,7 +328,7 @@ def simulate_next_positions(agent ,game, action):
     # print(return_positions)
     return return_positions
 
-def test(use_kmeans = False):
+def test(use_kmeans = False, plotar = True):
     kmean = Kmean()
     plot_scores = []
     plot_mean_scores = []
@@ -303,10 +355,10 @@ def test(use_kmeans = False):
     agent.epsilon = 0.05
     epsilon = agent.epsilon
     
-    screen = initialize_graph(game.grid_size)
+    if plotar: screen = initialize_graph(game.grid_size)
 
     while True:
-        tm.sleep(0.1)
+        # tm.sleep(0.1)
         tempo += 1
         # get old state
         state_old = agent.get_state(game)
@@ -320,7 +372,7 @@ def test(use_kmeans = False):
         
         
         # ======================== TESTE MOVIMENTO ==========================#
-        if confidence < 0.1860 :
+        if confidence < 0.8210 :
             if use_kmeans == True:
                 drone_pos, user_pos, user_states = game.get_informations()
                 movement = kmean.determine_next_action(drone_pos, user_pos, game.speed, game.direction, user_states)
@@ -334,20 +386,19 @@ def test(use_kmeans = False):
             
             
         
-        list_positions[0] = game.posicao.copy()
-        # list_positions.append(game.posicao)
-        # next_position, _ = game.get_next_position(game.posicao, movement)
-        # list_positions[1] = next_position
+        # list_positions[0] = game.posicao.copy()
+        # # list_positions.append(game.posicao)
+        # # next_position, _ = game.get_next_position(game.posicao, movement)
+        # # list_positions[1] = next_position
         
-        new_list_positions = simulate_next_positions(agent, game, movement)
-        for i, v in enumerate(new_list_positions):
-            # print('index', i, v)
-            list_positions[i+1] = v
+        # new_list_positions = simulate_next_positions(agent, game, movement)
+        # for i, v in enumerate(new_list_positions):
+        #     # print('index', i, v)
+        #     list_positions[i+1] = v
         
         # print(new_list_positions)
         #=================================================================================//
-
-        game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=list_positions)
+        if plotar: game.render(screen, episode, total_reward, tempo, epsilon=epsilon, confidence = confidence, list_positions=[])
         # perform move and get new state
         _, reward, done, score, info = game.step(movement)
         score = reward
@@ -370,9 +421,9 @@ def test(use_kmeans = False):
             print("Media TEMPO: ", media_tempo ,info)
             episode += 1
             tempo = 0
-            game.reset()
             agent.n_games += 1
-            print('Game', agent.n_games, 'Score', score, 'TOTAL RW(test):', total_reward, 'Record:', record) 
+            print('Game', agent.n_games, 'Score', score, 'TOTAL RW(test):', total_reward, 'Record:', record, 'eNERGY:', game.battery) 
+            game.reset()
             total_reward = 0
             if episode == 100: break
     pygame.quit()
@@ -436,9 +487,11 @@ if __name__ == '__main__':
         sys.stdout.flush()
         tm.sleep(0.05)
     # train(continuar = True)
-    
+    plotar = True
+    if sys.argv[4] == 'np':
+        plotar = False
     if sys.argv[3] == 'k':
-        test(use_kmeans=True)
+        test(use_kmeans=True, plotar=plotar)
     else:
-        test()
+        test(plotar=plotar)
     # test_with_kmean()
