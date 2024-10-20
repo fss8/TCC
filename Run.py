@@ -36,13 +36,13 @@ def salvar_checkpoint(estado, nome_arquivo):
     with open(nome_arquivo, 'w') as f:
         json.dump(checkpoints, f, indent=4)
     
-    print(f"Checkpoint salvo no arquivo {nome_arquivo}")
+    # print(f"Checkpoint salvo no arquivo {nome_arquivo}")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(device)
 
 versao_melhor = 1180
-versao = 1260 # 500
+versao = 1500 # 500
 QTD_MOVEMENT = 6
 LEFT_NAME = 'TCC-TASK-REPONSE-CNNLsTM_6_model'
 LAST_MODEL = str(LEFT_NAME) + str(versao) + '.pth'
@@ -221,18 +221,18 @@ def train(plotar = False, continuar = False):
                     record = media_tempo
                 #     agent.model.save()
                 
-                estado = {
-                    "epoch": agent.n_games + versao + 1,
-                    "modelo": LEFT_NAME,
-                    "total_rw": total_reward,
-                    "media_tempo": media_tempo,
-                    "media_process": media_processing,
-                    "info": info,
-                    # "model_status": game.status  # Exemplificação de pesos de um modelo
-                }
+                # estado = {
+                #     "epoch": agent.n_games + versao + 1,
+                #     "modelo": LEFT_NAME,
+                #     "total_rw": total_reward,
+                #     "media_tempo": media_tempo,
+                #     "media_process": media_processing,
+                #     "info": info,
+                #     # "model_status": game.status  # Exemplificação de pesos de um modelo
+                # }
 
-                # Salva o checkpoint após a iteração 10
-                salvar_checkpoint(estado, 'checkpoint_10.json')
+                # # Salva o checkpoint após a iteração 10
+                # salvar_checkpoint(estado, 'checkpoint_10.json')
 
                 print("Media TEMPO: ", media_tempo ,info)
                 agent.n_games += 1
@@ -372,13 +372,13 @@ def test(use_kmeans = False, plotar = True):
         
         
         # ======================== TESTE MOVIMENTO ==========================#
-        if confidence < 0.8210 :
+        if confidence < 0.2010 :
             if use_kmeans == True:
                 drone_pos, user_pos, user_states = game.get_informations()
                 movement = kmean.determine_next_action(drone_pos, user_pos, game.speed, game.direction, user_states)
             else:
                 drone_pos, user_pos = game.get_positions()
-                movement = definir_action(drone_pos, user_pos, game.speed, game.direction)
+                movement = np.random.randint(0, 5)
         else:
             # print(movement)
             pass
@@ -416,6 +416,22 @@ def test(use_kmeans = False, plotar = True):
             
             if info['qtdw'] > 0 : media_tempo = info['tempos']/info['qtdw'] 
             else: media_tempo = 0
+            media_processing = 0
+            if info['users_process'] > 0: media_processing = info['time_proc']/info['users_process']
+            
+            estado = {
+                    "epoch": agent.n_games + 1,
+                    "modelo": LEFT_NAME,
+                    "total_rw": total_reward,
+                    "media_tempo": media_tempo,
+                    "media_process": media_processing,
+                    "info": info,
+                    "batery_final": game.battery
+                    # "model_status": game.status  # Exemplificação de pesos de um modelo
+                }
+
+            #     # Salva o checkpoint após a iteração 10
+            # salvar_checkpoint(estado, 'CHECK_MODELO_MISTO.json')
 
 
             print("Media TEMPO: ", media_tempo ,info)
@@ -425,7 +441,7 @@ def test(use_kmeans = False, plotar = True):
             print('Game', agent.n_games, 'Score', score, 'TOTAL RW(test):', total_reward, 'Record:', record, 'eNERGY:', game.battery) 
             game.reset()
             total_reward = 0
-            if episode == 100: break
+            if episode == 10: break
     pygame.quit()
     
 def test_with_kmean():

@@ -10,7 +10,34 @@ from math import log2
 import time
 from collections import deque
 
+import json
+import os
+def carregar_checkpoints(nome_arquivo):
+    if os.path.exists(nome_arquivo):
+        with open(nome_arquivo, 'r') as f:
+            return json.load(f)
+    else:
+        return {}  # Se não existir, inicializa com uma lista vazia
 
+# Função para salvar os checkpoints no arquivo
+def salvar_checkpoint(valor, tipo, nome_arquivo):
+    # Carregar os checkpoints existentes
+    checkpoints = carregar_checkpoints(nome_arquivo)
+    if checkpoints:
+    
+        # Adiciona o novo checkpoint à lista
+        if tipo not in checkpoints:
+            checkpoints[tipo] = []
+        checkpoints[tipo].append(valor)
+        
+    else:
+        checkpoints = {
+            tipo: [valor]
+        }
+    
+    # Salva novamente no arquivo
+    with open(nome_arquivo, 'w') as f:
+        json.dump(checkpoints, f, indent=4)
 
 # [[=== BLOCO 1 ===]]
 # [[=== _______ ===]]
@@ -347,6 +374,9 @@ class AgenteRL(gym.Env):
                     taks_weight = np.random.randint(1, self.max_weight_task)
                     self.process_tasks[index] = taks_weight
                     
+                    # salvar_checkpoint(self.users_positions[index],'user_2', 'posicoes_random.json')
+                    
+                    
             elif user == 3: # Usuário se moveu
                 pass
                 # if np.random.rand() < 0.5: # 50% de chance de mover
@@ -435,6 +465,9 @@ class AgenteRL(gym.Env):
         speed = self.speed
         next_position, position_penalty = self.get_next_position(last_position, action)
         self.posicao = next_position
+        # print(self.posicao)
+        
+        # salvar_checkpoint([int(self.posicao[0]), int(self.posicao[1])], 'drone', 'posicoes_random.json')
         # elif action == 4:
             # pass  # Ficar parado
         # if action == 40:
@@ -527,6 +560,8 @@ class AgenteRL(gym.Env):
                     users_waiting += 1
                     qty += 1
                     reward += 15 - (self.users_time[i] * 0.001)  # Recompensa maior por tempo de espera reduzido
+                    
+                    # salvar_checkpoint(self.users_positions[i],'user_3', 'posicoes_random.json')
 
                     # cost_voo, _, _ = energia_sobrevoo(self.posicao, self.users_positions[i])
                     # energy_sobrevoo += cost_voo
@@ -633,6 +668,8 @@ class AgenteRL(gym.Env):
         taks_weight = np.random.randint(1, self.max_weight_task)
         self.user_states[user2] = 2
         self.process_tasks[user2] = taks_weight
+        
+        # salvar_checkpoint(self.users_positions[user2],'user_2', 'posicoes_random.json')
         num_max_clientes = 100
         self.previous_distances = np.zeros(num_max_clientes)
         self.index_min_previous = -1
